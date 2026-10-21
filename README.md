@@ -1,5 +1,7 @@
 # MediFlow – G10 Equipo 7
 
+Agente Autônomo para Triagem, Extração e Roteamento de Documentos Clínicos
+
 Triagem automática de documentos médicos com um agente de IA. O documento entra, o agente extrai os dados, valida e decide para onde ele vai: **rotina**, **urgência** ou **ambiguidade** (revisão humana).
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
@@ -17,6 +19,12 @@ Documentos médicos (receituários, laudos, exames) chegam em formatos variados:
 Todos os dados de teste são **fictícios**.
 
 ## 2. Arquitetura
+
+![Arquitetura do MediFlow](docs/diagrama-arquitetura.png)
+
+*A Fase 2 (agente de consulta e chat, tracejada no diagrama) é opcional e não faz parte do MVP.*
+
+A mesma arquitetura em Mermaid (editável no próprio README):
 
 ```mermaid
 flowchart TD
@@ -80,14 +88,25 @@ Dependem da issue #5. Pontos em aberto:
 - Critérios que caracterizam um achado crítico.
 - **Documento urgente e de baixa confiança:** vai para auditoria humana, dispara o alerta, ou os dois?
 
-## 5. Decisões e riscos
+## 5. Decisões
 
-| Decisão / risco | Situação |
-|---|---|
-| A interface chama o agente diretamente (sem n8n no caminho principal) | Decidido |
-| Chaves de API pessoais, via variável de ambiente, nunca no código ou no chat | Decidido |
-| Alerta não pode derrubar a triagem | Decidido |
-| Fase 2 depende de o n8n conseguir ler os buckets da OCI (issue #12) | Risco em validação |
+Registro das decisões de arquitetura. Data: 19/10/2026 (fechamento da arquitetura).
+
+| Tema | Decisão | Alternativa / observação |
+|---|---|---|
+| Núcleo do agente | Python com LangGraph (Extrair, Validar, Decidir Rota) | n8n fica só na Fase 2 (opcional) e nos alertas |
+| Buckets | 3 buckets: `recebidos`, `processados` (pastas `rotina` e `urgencia`) e `auditoria-humana` (pasta `ambiguidade`) | Alternativa: 1 bucket só, separado por prefixos. Escolhemos 3 para separar o original, o resultado e a fila de revisão humana |
+| Gatilho de entrada | A API chama o agente diretamente | Alternativa descartada: disparar o agente por upload no bucket |
+| Docker e VM | Ficam para uma sprint posterior (diferencial, fora do MVP) | O MVP roda local |
+| Chaves de API | Pessoais, por variável de ambiente, nunca no código ou no chat | #3 |
+| Alerta de urgência | A falha do alerta não derruba a triagem | #13 |
+
+**Em aberto:**
+
+- Documento urgente e de baixa confiança: vai para auditoria humana, dispara o alerta, ou os dois? (#5)
+- O n8n consegue ler os buckets da OCI? Risco da Fase 2, em validação (#12).
+
+O histórico completo fica em [`docs/decisoes.md`](docs/decisoes.md).
 
 ## 6. Estrutura e como rodar
 
@@ -127,9 +146,23 @@ pytest
 
 Nunca commite o `.env`. Veja o `CONTRIBUTING.md` para o fluxo de branch e PR.
 
-## 7. Exemplos (a definir)
+## 7. Cenários da demo
 
-Depende da issue #4. Serão 3 documentos sintéticos, um por rota (rotina, urgência e ambiguidade), em `data/sinteticos/`.
+Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Em cada cenário, o documento entra pela tela, o original vai para `recebidos` e o agente devolve o JSON de triagem.
+
+**Cenário 1: rotina** (`doc_teste_001_rotina.json`)
+- Entrada: receituário completo de controle de hipertensão (paciente, médico com CRM e prescrição legíveis).
+- Resultado esperado: confiança alta, nenhum sinal de gravidade. Rota **rotina**, gravado em `processados/rotina`, sem alerta.
+
+**Cenário 2: urgência** (`doc_teste_002_urgencia.json`)
+- Entrada: laudo de tomografia com achado compatível com hemorragia subaracnoidea aguda e recomendação de avaliação neurocirúrgica imediata.
+- Resultado esperado: achado crítico. Rota **urgência**, gravado em `processados/urgencia` e **alerta de urgência disparado** (n8n/webhook). Se o alerta falhar, a triagem continua.
+
+**Cenário 3: ambiguidade** (`doc_teste_003_ambiguidade.json`)
+- Entrada: receituário digitalizado com baixa qualidade: nome, CRM e dose ilegíveis ("5 ou 50 mg"), diagnóstico não informado.
+- Resultado esperado: confiança baixa. Rota **ambiguidade**, gravado em `auditoria-humana/ambiguidade` para revisão humana, sem alerta.
+
+Os valores exatos de confiança e os limiares dependem das regras da #5.
 
 ## 8. Limitações e próximos passos
 
