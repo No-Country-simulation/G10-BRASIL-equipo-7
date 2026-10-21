@@ -1,0 +1,6 @@
+{
+  "documento_id": "DOC-TESTE-002",
+  "tipo_arquivo": "JSON",
+  "documento_texto": "HOSPITAL EXEMPLO - LAUDO DE EXAME DE IMAGEM. Paciente: Carlos Pereira Dias, 61 anos. Solicitante: Dra. Ana Ribeiro CRM-SP 654321. Exame: Tomografia de cranio sem contraste. Indicacao: cefaleia subita intensa. Achados: hiperdensidade espontanea em espaco subaracnoideo, compativel com hemorragia subaracnoidea aguda. Conclusao: sugere-se avaliacao neurocirurgica imediata.",
+  "canal_origem": "Pronto_Socorro"
+}

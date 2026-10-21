@@ -1,0 +1,11 @@
+streamlit
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+langgraph
+google-genai
+oci
+python-dotenv
+requests
+pytest
