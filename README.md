@@ -6,6 +6,8 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
 
+A API já funciona localmente com agente simulado e armazenamento em disco. Veja o [guia da API](docs/api.md) para iniciar o servidor, enviar seus próprios arquivos e conferir os resultados. A extração real com Gemini, o armazenamento OCI e o envio de alertas ainda dependem das próximas integrações.
+
 ## 1. Problema e objetivo
 
 Documentos médicos (receituários, laudos, exames) chegam em formatos variados: PDF, imagem ou texto. Tratar todos do mesmo jeito atrasa os casos críticos e deixa passar leituras duvidosas.
@@ -118,7 +120,7 @@ mediflow/
 │   ├── nodes/      # extrair.py, validar.py, decidir_rota.py
 │   ├── schemas.py  # contratos Pydantic (#1)
 │   └── rules.py    # regras de triagem (#5)
-├── storage/        # integração com o OCI Object Storage
+├── storage/        # armazenamento local e integração futura com OCI
 ├── alerts/         # alerta de urgência (#13)
 ├── n8n/            # workflows do n8n
 ├── data/sinteticos/# documentos fictícios de teste (#4)
@@ -126,43 +128,62 @@ mediflow/
 └── tests/
 ```
 
-**Pré-requisitos:** Python 3.11+, chave da API do Gemini (cada integrante gera a sua, #3) e a conta OCI Always Free com os 3 buckets (#2).
+**Pré-requisitos para testar a API:** Python 3.11+. O modo padrão (`mock`) funciona sem chave Gemini e sem conta OCI. Execute os comandos na raiz do projeto:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env             # preencha GEMINI_API_KEY e os dados da OCI
+python -m pip install -r requirements.txt
+```
 
-# interface (funciona sozinha com JSON mockado)
+Se ainda não existir um `.env`, copie `.env.example` para `.env`. Se já existir, preserve seu conteúdo e confira estas configurações:
+
+```dotenv
+AGENT_MODE=mock
+STORAGE_LOCAL_DIR=.local/storage
+AGENT_TIMEOUT_SECONDS=30
+```
+
+A API lê o `.env` da raiz; variáveis já exportadas no terminal têm prioridade. Inicie o servidor:
+
+```bash
+python -m uvicorn api.main:app --reload
+```
+
+Abra <http://127.0.0.1:8000/docs> para escolher um arquivo e testar `POST /triagem`. Para um PDF ou imagem seu, selecione `caso_mock=rotina`, `urgencia` ou `ambiguidade`: o conteúdo ainda não passa por OCR ou análise de IA. Os exemplos com `curl`, JSON próprio e integração do front estão no [guia da API](docs/api.md).
+
+Em outro terminal, com o ambiente ativado:
+
+```bash
+# Interface: ainda funciona com seus próprios mocks, até conectar a função triar à API.
 streamlit run app/app.py
 
-# API (quando a #9 estiver pronta)
-uvicorn api.main:app --reload
-
-# testes
-pytest
+# Testes automatizados: usam diretórios temporários, sem gravar nos buckets locais.
+python -m pytest -q
 ```
 
 Nunca commite o `.env`. Veja o `CONTRIBUTING.md` para o fluxo de branch e PR.
 
 ## 7. Cenários da demo
 
-Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Em cada cenário, o documento entra pela tela, o original vai para `recebidos` e o agente devolve o JSON de triagem.
+Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Enviados à API em modo `mock`, seus IDs selecionam automaticamente os cenários abaixo: o original vai para `recebidos` e o resultado é salvo no destino da rota. A tela Streamlit ainda mantém sua simulação independente.
 
 **Cenário 1: rotina** (`doc_teste_001_rotina.json`)
+
 - Entrada: receituário completo de controle de hipertensão (paciente, médico com CRM e prescrição legíveis).
 - Resultado esperado: confiança alta, nenhum sinal de gravidade. Rota **rotina**, gravado em `processados/rotina`, sem alerta.
 
 **Cenário 2: urgência** (`doc_teste_002_urgencia.json`)
+
 - Entrada: laudo de tomografia com achado compatível com hemorragia subaracnoidea aguda e recomendação de avaliação neurocirúrgica imediata.
-- Resultado esperado: achado crítico. Rota **urgência**, gravado em `processados/urgencia` e **alerta de urgência disparado** (n8n/webhook). Se o alerta falhar, a triagem continua.
+- Resultado esperado no mock: rota **urgência**, gravado em `processados/urgencia` e `alerta_enviado=true` simulado. Nenhum webhook é chamado; o envio real de alertas pertence à issue #13.
 
 **Cenário 3: ambiguidade** (`doc_teste_003_ambiguidade.json`)
+
 - Entrada: receituário digitalizado com baixa qualidade: nome, CRM e dose ilegíveis ("5 ou 50 mg"), diagnóstico não informado.
 - Resultado esperado: confiança baixa. Rota **ambiguidade**, gravado em `auditoria-humana/ambiguidade` para revisão humana, sem alerta.
 
-Os valores exatos de confiança e os limiares dependem das regras da #5.
+O mock usa scores fixos de 0,96 (rotina), 0,93 (urgência) e 0,41 (ambiguidade). São exemplos para integração; o cálculo real depende da implementação das regras de triagem.
 
 ## 8. Limitações e próximos passos
 
