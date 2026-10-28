@@ -162,7 +162,11 @@ Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Em cada c
 - Entrada: receituário digitalizado com baixa qualidade: nome, CRM e dose ilegíveis ("5 ou 50 mg"), diagnóstico não informado.
 - Resultado esperado: confiança baixa. Rota **ambiguidade**, gravado em `auditoria-humana/ambiguidade` para revisão humana, sem alerta.
 
-Os valores exatos de confiança e os limiares dependem das regras da #5.
+| Arquivo | Rota | Destino principal | Bucket | Revisão humana | Alerta |
+|---|---|---|---|---|---|
+| `doc_teste_001_rotina.json` | `/rotina` | `Farmacia_Hospitalar` | `processados` | não | não |
+| `doc_teste_002_urgencia.json` | `/urgencia` | `Fila_Emergencia_Medica` | `processados` | não (se score ≥ 0,85) | sim |
+| `doc_teste_003_ambiguidade.json` | `/ambiguidade` | `Fila_Revisao_Humana` | `auditoria-humana` | sim | não |
 
 ## 8. Limitações e próximos passos
 
