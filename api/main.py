@@ -1,5 +1,6 @@
 """API FastAPI (#9). Rodar: uvicorn api.main:app --reload"""
 from copy import deepcopy
+from io import BytesIO
 import json
 import logging
 import math
@@ -9,10 +10,11 @@ from uuid import uuid4
 
 from anyio import fail_after, to_thread
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from pydantic import ValidationError
 
 from agent.adapters import ambiguidade, triar
-from agent.schemas import RespostaTriagem, ResultadoAgente, Rota
+from agent.schemas import DocumentoEntrada, RespostaTriagem, ResultadoAgente, Rota
 from storage.local_storage import ArmazenamentoLocal
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -37,9 +39,24 @@ def saude():
     return {"status": "ok"}
 
 
-@app.post("/triagem", response_model=RespostaTriagem)
-async def triagem(arquivo: UploadFile = File(...), canal_origem: str = Form(""),
+@app.post("/triagem", response_model=RespostaTriagem, openapi_extra={
+    "requestBody": {"required": True, "content": {
+        "application/json": {"schema": DocumentoEntrada.model_json_schema()},
+        "multipart/form-data": {"schema": {"required": ["arquivo"]}},
+    }},
+})
+async def triagem(request: Request, arquivo: UploadFile | None = File(None), canal_origem: str = Form(""),
                   caso_mock: Rota | None = Form(None)):
+    if request.headers.get("content-type", "").split(";", 1)[0].strip() == "application/json":
+        conteudo = await request.body()
+        try:
+            entrada = DocumentoEntrada.model_validate_json(conteudo)
+        except ValidationError as erro:
+            raise HTTPException(422, erro.errors(include_input=False, include_context=False)) from erro
+        arquivo = UploadFile(file=BytesIO(conteudo), filename="documento.json")
+        canal_origem, caso_mock = entrada.canal_origem or "", entrada.caso_mock
+    if arquivo is None:
+        raise HTTPException(422, "Envie um arquivo multipart ou um corpo JSON válido.")
     try:
         extensao = Path(arquivo.filename or "").suffix.lower()
         if extensao not in TIPOS:

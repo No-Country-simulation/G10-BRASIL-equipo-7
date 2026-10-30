@@ -114,3 +114,4 @@ class DocumentoEntrada(BaseModel):
     tipo_arquivo: str
     documento_texto: str | None = None
     canal_origem: str | None = None
+    caso_mock: Rota | None = None

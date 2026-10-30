@@ -131,3 +131,45 @@ def test_adaptador_real_usa_contrato_do_grafo(client, monkeypatch):
     monkeypatch.setenv("AGENT_MODE", "real")
     entrada = (RAIZ / "data/exemplos/entrada_urgencia.json").read_bytes()
     assert enviar(client, entrada, "tep.json").json()["classificacao"] == resultado["classificacao"]
+
+
+def test_json_direto_preserva_entrada_e_tipo_declarado(client, tmp_path, monkeypatch):
+    conteudo = (RAIZ / "data/exemplos/entrada_urgencia.json").read_bytes()
+    original = main.triar
+
+    def verificar(documento, caso):
+        assert documento["tipo_arquivo"] == "PDF"
+        assert documento["canal_origem"] == "Pronto_Socorro"
+        return original(documento, caso)
+
+    monkeypatch.setattr(main, "triar", verificar)
+    resposta = client.post("/triagem", content=conteudo,
+                           headers={"Content-Type": "application/json; charset=utf-8"})
+    assert resposta.status_code == 200
+    resultado = resposta.json()
+    assert resultado["documento_id"] == "DOC-CLIN-2026-8942"
+    assert resultado["decisao_roteamento"]["rota"] == "urgencia"
+    assert next((tmp_path / "recebidos").iterdir()).read_bytes() == conteudo
+    meta = resultado["armazenamento_oci"]
+    assert json.loads((tmp_path / meta["bucket"] / meta["caminho_objeto"]).read_bytes()) == resultado
+
+
+def test_json_direto_aceita_caso_mock(client):
+    entrada = json.loads((RAIZ / "data/exemplos/entrada_urgencia.json").read_bytes())
+    resposta = client.post("/triagem", json={**entrada, "caso_mock": "rotina"})
+    assert resposta.status_code == 200
+    assert resposta.json()["decisao_roteamento"]["rota"] == "rotina"
+
+
+@pytest.mark.parametrize("conteudo", [b"{invalido", b"\xff", b"[]", b"{}",
+    b'{"documento_id":"x","tipo_arquivo":"PDF","caso_mock":"invalido"}'])
+def test_json_direto_invalido_retorna_422(client, tmp_path, conteudo):
+    resposta = client.post("/triagem", content=conteudo, headers={"Content-Type": "application/json"})
+    assert resposta.status_code == 422
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_swagger_descreve_json_e_upload(client):
+    corpo = client.get("/openapi.json").json()["paths"]["/triagem"]["post"]["requestBody"]
+    assert set(corpo["content"]) == {"application/json", "multipart/form-data"}
+    assert corpo["content"]["multipart/form-data"]["schema"]["required"] == ["arquivo"]
