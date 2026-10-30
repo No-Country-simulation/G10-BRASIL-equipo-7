@@ -4,6 +4,7 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+.local/storage/
 .streamlit/secrets.toml
 .oci/
 *.pem
