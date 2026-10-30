@@ -17,7 +17,6 @@ from agent.schemas import (
     Paciente,
     RespostaTriagem,
     ResultadoAgente,
-    ResultadoTriagem,
 )
 
 
@@ -227,16 +226,3 @@ def test_campo_fora_do_contrato_nao_e_descartado_silenciosamente(resposta_urgenc
     resposta_urgencia["classificacao"]["campo_inexistente"] = "valor"
     with pytest.raises(ValidationError):
         RespostaTriagem.model_validate(resposta_urgencia)
-
-
-def test_contrato_legado_continua_disponivel():
-    dados = {
-        "documento_id": "DOC-LEGADO-001",
-        "classificacao": "rotina",
-        "destino_principal": "processados/rotina",
-        "score_confianca": 0.96,
-        "justificativa": "Exemplo do contrato anterior.",
-        "alerta_enviado": False,
-        "dados_extraidos": {"paciente": "Paciente fictício"},
-    }
-    assert ResultadoTriagem.model_validate(dados).model_dump(mode="json") == dados

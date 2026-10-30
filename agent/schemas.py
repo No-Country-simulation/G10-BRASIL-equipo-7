@@ -1,7 +1,7 @@
 """Contratos de entrada e saída da triagem (#1).
 
 ResultadoAgente e RespostaTriagem são o novo contrato aninhado.
-DocumentoEntrada e ResultadoTriagem permanecem disponíveis durante a migração.
+DocumentoEntrada define a entrada textual dos documentos.
 """
 from typing import Annotated, Literal, Self
 
@@ -114,15 +114,3 @@ class DocumentoEntrada(BaseModel):
     tipo_arquivo: str
     documento_texto: str | None = None
     canal_origem: str | None = None
-
-
-class ResultadoTriagem(BaseModel):
-    """Contrato legado, preservado até a migração dos consumidores da API."""
-
-    documento_id: str
-    classificacao: Rota
-    destino_principal: str
-    score_confianca: float = Field(ge=0, le=1)
-    justificativa: str
-    alerta_enviado: bool = False
-    dados_extraidos: dict = Field(default_factory=dict)

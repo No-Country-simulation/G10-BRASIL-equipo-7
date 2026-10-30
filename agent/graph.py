@@ -6,15 +6,18 @@ from langgraph.graph import END, StateGraph
 from agent.nodes.decidir_rota import decidir_rota
 from agent.nodes.extrair import extrair
 from agent.nodes.validar import validar
+from agent.schemas import Classificacao, DadosExtraidos, DecisaoRoteamento, ResultadoAgente
 
 
 class TriagemState(TypedDict, total=False):
     documento: dict
     extracao: dict
+    documento_id: str
+    status: str
     score_confianca: float
-    classificacao: str
-    destino_principal: str
-    justificativa: str
+    classificacao: Classificacao
+    dados_extraidos: DadosExtraidos
+    decisao_roteamento: DecisaoRoteamento
 
 
 def build_graph():
@@ -29,5 +32,9 @@ def build_graph():
     return g.compile()
 
 
-def triar(documento: dict) -> dict:
-    return build_graph().invoke({"documento": documento})
+def triar(documento: dict) -> ResultadoAgente:
+    estado = build_graph().invoke({"documento": documento,
+                                   "documento_id": documento["documento_id"], "status": "processado"})
+    return ResultadoAgente.model_validate({
+        campo: estado[campo] for campo in ResultadoAgente.model_fields if campo in estado
+    })
