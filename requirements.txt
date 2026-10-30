@@ -1,5 +1,6 @@
 streamlit
 fastapi
+anyio>=4.1
 uvicorn[standard]
 python-multipart
 pydantic
@@ -9,3 +10,4 @@ oci
 python-dotenv
 requests
 pytest
+httpx
