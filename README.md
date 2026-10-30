@@ -6,6 +6,8 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
 
+A API já aceita JSON direto e upload, usando agente simulado e armazenamento local. A tela Streamlit é uma demonstração independente. Veja o [guia da API e do Postman](docs/api.md).
+
 ## 1. Problema e objetivo
 
 Documentos médicos (receituários, laudos, exames) chegam em formatos variados: PDF, imagem ou texto. Tratar todos do mesmo jeito atrasa os casos críticos e deixa passar leituras duvidosas.
@@ -22,7 +24,7 @@ Todos os dados de teste são **fictícios**.
 
 ![Arquitetura do MediFlow](docs/diagrama-arquitetura.png)
 
-*A Fase 2 (agente de consulta e chat, tracejada no diagrama) é opcional e não faz parte do MVP.*
+*O diagrama representa a arquitetura alvo; Gemini, OCI e envio real de alertas ainda dependem de integração.*
 
 A mesma arquitetura em Mermaid (editável no próprio README):
 
@@ -126,43 +128,47 @@ mediflow/
 └── tests/
 ```
 
-**Pré-requisitos:** Python 3.11+, chave da API do Gemini (cada integrante gera a sua, #3) e a conta OCI Always Free com os 3 buckets (#2).
+**Pré-requisitos:** Python 3.11+. O modo `mock` funciona sem chave Gemini e sem conta OCI. Execute na raiz do projeto:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env             # preencha GEMINI_API_KEY e os dados da OCI
+python -m pip install -r requirements.txt
+# Se ainda não existir .env, copie .env.example pelo editor.
+# No .env: AGENT_MODE=mock, AGENT_TIMEOUT_SECONDS=30 e STORAGE_LOCAL_DIR=.local/storage
 
 # interface (funciona sozinha com JSON mockado)
 streamlit run app/app.py
 
-# API (quando a #9 estiver pronta)
-uvicorn api.main:app --reload
+# API: Swagger em http://127.0.0.1:8000/docs
+python -m uvicorn api.main:app --reload
 
 # testes
-pytest
+python -m pytest -q
 ```
 
 Nunca commite o `.env`. Veja o `CONTRIBUTING.md` para o fluxo de branch e PR.
 
 ## 7. Cenários da demo
 
-Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Em cada cenário, o documento entra pela tela, o original vai para `recebidos` e o agente devolve o JSON de triagem.
+Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Enviados à API, seus IDs selecionam os exemplos simulados; o original é salvo em `recebidos` e o resultado na pasta da rota. A tela apenas exibe exemplos locais. As respostas do novo contrato estão em [data/exemplos](data/exemplos).
 
 **Cenário 1: rotina** (`doc_teste_001_rotina.json`)
+
 - Entrada: receituário completo de controle de hipertensão (paciente, médico com CRM e prescrição legíveis).
 - Resultado esperado: confiança alta, nenhum sinal de gravidade. Rota **rotina**, gravado em `processados/rotina`, sem alerta.
 
 **Cenário 2: urgência** (`doc_teste_002_urgencia.json`)
+
 - Entrada: laudo de tomografia com achado compatível com hemorragia subaracnoidea aguda e recomendação de avaliação neurocirúrgica imediata.
-- Resultado esperado: achado crítico. Rota **urgência**, gravado em `processados/urgencia` e **alerta de urgência disparado** (n8n/webhook). Se o alerta falhar, a triagem continua.
+- Resultado esperado no mock: rota **urgência**, gravado em `processados/urgencia`, com mensagem de notificação gerada. O envio real do alerta pertence à issue #13.
 
 **Cenário 3: ambiguidade** (`doc_teste_003_ambiguidade.json`)
+
 - Entrada: receituário digitalizado com baixa qualidade: nome, CRM e dose ilegíveis ("5 ou 50 mg"), diagnóstico não informado.
 - Resultado esperado: confiança baixa. Rota **ambiguidade**, gravado em `auditoria-humana/ambiguidade` para revisão humana, sem alerta.
 
-Os valores exatos de confiança e os limiares dependem das regras da #5.
+Os scores atuais são valores fixos de demonstração. O exemplo adicional de TEP `DOC-CLIN-2026-8942`, em `data/exemplos/entrada_urgencia.json`, também é reconhecido como urgência.
 
 ## 8. Limitações e próximos passos
 
