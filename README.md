@@ -184,6 +184,11 @@ Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Enviados 
 - Resultado esperado: confiança baixa. Rota **ambiguidade**, gravado em `auditoria-humana/ambiguidade` para revisão humana, sem alerta.
 
 O mock usa scores fixos de 0,96 (rotina), 0,93 (urgência) e 0,41 (ambiguidade). São exemplos para integração; o cálculo real depende da implementação das regras de triagem.
+| Arquivo | Rota | Destino principal | Bucket | Revisão humana | Alerta |
+|---|---|---|---|---|---|
+| `doc_teste_001_rotina.json` | `/rotina` | `Farmacia_Hospitalar` | `processados` | não | não |
+| `doc_teste_002_urgencia.json` | `/urgencia` | `Fila_Emergencia_Medica` | `processados` | não (se score ≥ 0,85) | sim |
+| `doc_teste_003_ambiguidade.json` | `/ambiguidade` | `Fila_Revisao_Humana` | `auditoria-humana` | sim | não |
 
 ## 8. Limitações e próximos passos
 
