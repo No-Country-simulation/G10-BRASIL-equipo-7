@@ -1,7 +1,10 @@
 import pytest
 from pydantic import ValidationError
 
-from agent.schemas import Classificacao, DadosExtraidos, Medicamento, Medico, Paciente
+from agent.schemas import (
+    ArmazenamentoOCI, Classificacao, DadosExtraidos, DecisaoRoteamento,
+    Medicamento, Medico, Notificacao, Paciente, RespostaTriagem, ResultadoAgente,
+)
 
 
 CLASSIFICACAO = {
@@ -76,3 +79,117 @@ def test_modelos_rejeitam_campos_desconhecidos(modelo):
     dados = CLASSIFICACAO if modelo is Classificacao else {}
     with pytest.raises(ValidationError):
         modelo.model_validate({**dados, "campo_desconhecido": "valor"})
+
+
+NOTIFICACAO = {"canal": "Alerta_Plantao_Medico", "mensagem": "Alerta simulado de urgência."}
+ROTEAMENTO = {
+    "rota": "urgencia",
+    "destino_principal": "Fila_Emergencia_Medica",
+    "requer_auditoria_humana": False,
+    "justificativa_roteamento": "Achado crítico requer avaliação imediata.",
+    "notificacao_gerada": NOTIFICACAO,
+}
+RESULTADO = {
+    "status": "processado",
+    "documento_id": "DOC-CLIN-2026-8942",
+    "classificacao": CLASSIFICACAO,
+    "dados_extraidos": {},
+    "score_confianca": 0.93,
+    "decisao_roteamento": ROTEAMENTO,
+}
+ARMAZENAMENTO = {
+    "provedor": "local",
+    "bucket": "processados",
+    "caminho_objeto": "urgencia/documento.json.triagem.json",
+    "status_backup": "sucesso",
+}
+
+
+@pytest.mark.parametrize("notificacao", [NOTIFICACAO, None])
+def test_resposta_completa_e_resultado_do_agente_sao_separados(notificacao):
+    dados = {**RESULTADO, "decisao_roteamento": {**ROTEAMENTO, "notificacao_gerada": notificacao}}
+    resultado = ResultadoAgente.model_validate(dados)
+    resposta = RespostaTriagem(**resultado.model_dump(), armazenamento_oci=ARMAZENAMENTO)
+
+    assert resposta.model_dump(exclude={"armazenamento_oci"}) == resultado.model_dump()
+    assert RespostaTriagem.model_validate_json(resposta.model_dump_json()) == resposta
+    with pytest.raises(ValidationError):
+        ResultadoAgente.model_validate(resposta.model_dump())
+
+
+def test_resposta_de_erro_aceita_auditoria_sem_notificacao_nem_armazenamento():
+    resposta = RespostaTriagem.model_validate({
+        **RESULTADO, "status": "erro_processamento", "score_confianca": 0,
+        "decisao_roteamento": {
+            **ROTEAMENTO, "rota": "ambiguidade", "destino_principal": "Fila_Revisao_Humana",
+            "requer_auditoria_humana": True, "notificacao_gerada": None,
+        },
+        "armazenamento_oci": {
+            "provedor": "local", "status_backup": "falha", "bucket": None, "caminho_objeto": None,
+        },
+    })
+    assert resposta.status == "erro_processamento"
+    assert resposta.decisao_roteamento.requer_auditoria_humana is True
+
+
+@pytest.mark.parametrize("modelo,dados", [
+    (Notificacao, NOTIFICACAO),
+    (DecisaoRoteamento, ROTEAMENTO),
+    (ResultadoAgente, RESULTADO),
+    (ArmazenamentoOCI, ARMAZENAMENTO),
+    (RespostaTriagem, {**RESULTADO, "armazenamento_oci": ARMAZENAMENTO}),
+])
+def test_novos_modelos_exigem_campos_e_rejeitam_extras(modelo, dados):
+    for campo in dados:
+        with pytest.raises(ValidationError) as erro:
+            modelo.model_validate({chave: valor for chave, valor in dados.items() if chave != campo})
+        assert any(item["loc"] == (campo,) and item["type"] == "missing" for item in erro.value.errors())
+    with pytest.raises(ValidationError):
+        modelo.model_validate({**dados, "campo_extra": True})
+
+
+@pytest.mark.parametrize("modelo,dados,alteracao", [
+    (Notificacao, NOTIFICACAO, {"canal": " "}),
+    (Notificacao, NOTIFICACAO, {"mensagem": 123}),
+    (DecisaoRoteamento, ROTEAMENTO, {"rota": "inexistente"}),
+    (DecisaoRoteamento, ROTEAMENTO, {"destino_principal": ""}),
+    (DecisaoRoteamento, ROTEAMENTO, {"requer_auditoria_humana": "false"}),
+    (DecisaoRoteamento, ROTEAMENTO, {"notificacao_gerada": True}),
+    (DecisaoRoteamento, ROTEAMENTO, {"notificacao_gerada": {"canal": "plantao"}}),
+    (ResultadoAgente, RESULTADO, {"status": "pendente"}),
+    (ResultadoAgente, RESULTADO, {"documento_id": " "}),
+    (ResultadoAgente, RESULTADO, {"classificacao": "urgencia"}),
+    (ResultadoAgente, RESULTADO, {"dados_extraidos": []}),
+    (ResultadoAgente, RESULTADO, {"decisao_roteamento": None}),
+    (ArmazenamentoOCI, ARMAZENAMENTO, {"provedor": "outro"}),
+    (ArmazenamentoOCI, ARMAZENAMENTO, {"status_backup": "pendente"}),
+])
+def test_novos_modelos_rejeitam_estruturas_invalidas(modelo, dados, alteracao):
+    with pytest.raises(ValidationError):
+        modelo.model_validate({**dados, **alteracao})
+
+
+@pytest.mark.parametrize("score", [-0.1, 1.1, float("nan"), float("inf"), -float("inf"), "0.9", True])
+def test_resultado_rejeita_score_geral_invalido(score):
+    with pytest.raises(ValidationError):
+        ResultadoAgente.model_validate({**RESULTADO, "score_confianca": score})
+
+
+@pytest.mark.parametrize("provedor", ["local", "oci"])
+@pytest.mark.parametrize("status,bucket,caminho,valido", [
+    ("sucesso", "processados", "urgencia/documento.json", True),
+    ("sucesso", None, "urgencia/documento.json", False),
+    ("sucesso", "processados", None, False),
+    ("sucesso", None, None, False),
+    ("falha", None, None, True),
+    ("falha", "processados", None, False),
+    ("falha", None, "urgencia/documento.json", False),
+    ("falha", "processados", "urgencia/documento.json", False),
+])
+def test_armazenamento_exige_localizacao_coerente(provedor, status, bucket, caminho, valido):
+    dados = dict(provedor=provedor, status_backup=status, bucket=bucket, caminho_objeto=caminho)
+    if valido:
+        assert ArmazenamentoOCI.model_validate(dados).model_dump() == dados
+    else:
+        with pytest.raises(ValidationError):
+            ArmazenamentoOCI.model_validate(dados)
