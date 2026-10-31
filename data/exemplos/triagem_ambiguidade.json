@@ -1,0 +1,45 @@
+{
+  "status": "processado",
+  "documento_id": "DOC-TESTE-003",
+  "classificacao": {
+    "tipo_documento": "Receituário Médico",
+    "especialidade": null,
+    "nivel_prioridade": "Revisão Humana",
+    "score_confianca_classificacao": 0.91
+  },
+  "dados_extraidos": {
+    "paciente": {
+      "nome": null,
+      "idade": null
+    },
+    "medico_solicitante": null,
+    "medico_prescritor": {
+      "nome": null,
+      "crm": null
+    },
+    "medicamentos": [
+      {
+        "nome": null,
+        "dosagem": null,
+        "posologia": "1 comprimido a cada 12 horas"
+      }
+    ],
+    "exame_realizado": null,
+    "diagnostico_principal": null,
+    "cid_sugerido": null
+  },
+  "score_confianca": 0.41,
+  "decisao_roteamento": {
+    "rota": "ambiguidade",
+    "destino_principal": "Fila_Revisao_Humana",
+    "requer_auditoria_humana": true,
+    "justificativa_roteamento": "Nome do paciente, CRM e dose ilegíveis ou ausentes; requer revisão humana.",
+    "notificacao_gerada": null
+  },
+  "armazenamento_oci": {
+    "provedor": "local",
+    "bucket": "auditoria-humana",
+    "caminho_objeto": "ambiguidade/exemplo-ambiguidade.json.triagem.json",
+    "status_backup": "sucesso"
+  }
+}

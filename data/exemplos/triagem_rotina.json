@@ -1,0 +1,45 @@
+{
+  "status": "processado",
+  "documento_id": "DOC-TESTE-001",
+  "classificacao": {
+    "tipo_documento": "Receituário Médico",
+    "especialidade": "Clínica Médica",
+    "nivel_prioridade": "Rotina",
+    "score_confianca_classificacao": 0.98
+  },
+  "dados_extraidos": {
+    "paciente": {
+      "nome": "Maria Souza Lima",
+      "idade": 45
+    },
+    "medico_solicitante": null,
+    "medico_prescritor": {
+      "nome": "Dr. Paulo Andrade",
+      "crm": "123456-SP"
+    },
+    "medicamentos": [
+      {
+        "nome": "Losartana",
+        "dosagem": "50 mg",
+        "posologia": "1 comprimido ao dia, uso contínuo, 30 dias"
+      }
+    ],
+    "exame_realizado": null,
+    "diagnostico_principal": "Hipertensão arterial",
+    "cid_sugerido": "I10"
+  },
+  "score_confianca": 0.96,
+  "decisao_roteamento": {
+    "rota": "rotina",
+    "destino_principal": "Farmacia_Hospitalar",
+    "requer_auditoria_humana": false,
+    "justificativa_roteamento": "Documento completo e sem sinais de gravidade.",
+    "notificacao_gerada": null
+  },
+  "armazenamento_oci": {
+    "provedor": "local",
+    "bucket": "processados",
+    "caminho_objeto": "rotina/exemplo-rotina.json.triagem.json",
+    "status_backup": "sucesso"
+  }
+}
