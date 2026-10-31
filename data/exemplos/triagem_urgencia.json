@@ -1,0 +1,42 @@
+{
+  "status": "processado",
+  "documento_id": "DOC-CLIN-2026-8942",
+  "classificacao": {
+    "tipo_documento": "Laudo de Exame de Imagem",
+    "especialidade": "Radiologia / Pneumologia",
+    "nivel_prioridade": "Urgente",
+    "score_confianca_classificacao": 0.99
+  },
+  "dados_extraidos": {
+    "paciente": {
+      "nome": "Carlos Eduardo Mendes",
+      "idade": 52
+    },
+    "medico_solicitante": {
+      "nome": "Dra. Renata Silveira",
+      "crm": "145892-SP"
+    },
+    "medico_prescritor": null,
+    "medicamentos": null,
+    "exame_realizado": "Tomografia de Torax com contraste",
+    "diagnostico_principal": "Tromboembolismo Pulmonar Agudo (TEP)",
+    "cid_sugerido": "I26.9"
+  },
+  "score_confianca": 0.93,
+  "decisao_roteamento": {
+    "rota": "urgencia",
+    "destino_principal": "Fila_Emergencia_Medica",
+    "requer_auditoria_humana": false,
+    "justificativa_roteamento": "Achado crítico de alta gravidade (TEP agudo) detectado em paciente sintomático.",
+    "notificacao_gerada": {
+      "canal": "Alerta_Plantao_Medico",
+      "mensagem": "ALERTA URGENTE: Laudo crítico de TEP Agudo para paciente Carlos Eduardo Mendes no Pronto-Socorro."
+    }
+  },
+  "armazenamento_oci": {
+    "provedor": "local",
+    "bucket": "processados",
+    "caminho_objeto": "urgencia/exemplo-urgencia.json.triagem.json",
+    "status_backup": "sucesso"
+  }
+}

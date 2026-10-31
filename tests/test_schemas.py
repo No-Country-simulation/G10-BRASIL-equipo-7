@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -193,3 +196,30 @@ def test_armazenamento_exige_localizacao_coerente(provedor, status, bucket, cami
     else:
         with pytest.raises(ValidationError):
             ArmazenamentoOCI.model_validate(dados)
+
+
+@pytest.mark.parametrize("rota,documento_id,departamento,prioridade,paciente", [
+    ("rotina", "DOC-TESTE-001", "Farmacia_Hospitalar", "Rotina", "Maria Souza Lima"),
+    ("urgencia", "DOC-CLIN-2026-8942", "Fila_Emergencia_Medica", "Urgente", "Carlos Eduardo Mendes"),
+    ("ambiguidade", "DOC-TESTE-003", "Fila_Revisao_Humana", "Revisão Humana", None),
+])
+def test_exemplos_completos_respeitam_contrato_e_cenario(rota, documento_id, departamento, prioridade, paciente):
+    caminho = Path(__file__).resolve().parents[1] / "data/exemplos" / f"triagem_{rota}.json"
+    dados = json.loads(caminho.read_text(encoding="utf-8"))
+    resposta = RespostaTriagem.model_validate(dados)
+
+    assert resposta.model_dump(mode="json") == dados
+    assert resposta.status == "processado"
+    assert resposta.documento_id == documento_id
+    assert resposta.classificacao.nivel_prioridade == prioridade
+    assert resposta.dados_extraidos.paciente.nome == paciente
+    decisao = resposta.decisao_roteamento
+    assert decisao.rota == rota
+    assert decisao.destino_principal == departamento
+    assert decisao.requer_auditoria_humana is (rota == "ambiguidade")
+    assert (decisao.notificacao_gerada is not None) is (rota == "urgencia")
+    armazenamento = resposta.armazenamento_oci
+    assert armazenamento.provedor == "local"
+    assert armazenamento.status_backup == "sucesso"
+    assert armazenamento.bucket == ("auditoria-humana" if rota == "ambiguidade" else "processados")
+    assert armazenamento.caminho_objeto.startswith(f"{rota}/")
