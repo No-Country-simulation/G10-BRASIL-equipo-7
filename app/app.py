@@ -1,69 +1,50 @@
-"""Tela Streamlit do MediFlow (#11), rodando com JSON mockado.
+"""Tela Streamlit do MediFlow, conectada à API (#26).
 
-Rodar:  streamlit run app.py
-Quando a API (#9) existir, troque a função triar() por uma chamada real.
+Rodar a API:  python -m uvicorn api.main:app --reload
+Rodar a tela: streamlit run app/app.py
+A API decide entre simulação e agente real pela variável AGENT_MODE.
 """
-import time
+import os
 
+import requests
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
 
 st.set_page_config(page_title="MediFlow", layout="centered")
-
-# Nomes de campos provisórios: confirmar com os contratos Pydantic (#1).
-MOCKS = {
-    "rotina": {
-        "documento_id": "DOC-TESTE-001",
-        "classificacao": "rotina",
-        "destino_principal": "processados/rotina",
-        "score_confianca": 0.96,
-        "justificativa": "Documento completo e sem sinais de gravidade.",
-        "alerta_enviado": False,
-        "dados_extraidos": {
-            "paciente": "Maria Souza Lima, 45 anos",
-            "medico": "Dr. Paulo Andrade, CRM-SP 123456",
-            "conteudo": "Losartana 50 mg, 1 comprimido ao dia",
-        },
-    },
-    "urgencia": {
-        "documento_id": "DOC-TESTE-002",
-        "classificacao": "urgencia",
-        "destino_principal": "processados/urgencia",
-        "score_confianca": 0.93,
-        "justificativa": "Achado crítico: avaliação neurocirúrgica imediata.",
-        "alerta_enviado": True,
-        "dados_extraidos": {
-            "paciente": "Carlos Pereira Dias, 61 anos",
-            "medico": "Dra. Ana Ribeiro, CRM-SP 654321",
-            "conteudo": "Tomografia de crânio: hemorragia subaracnoidea aguda",
-        },
-    },
-    "ambiguidade": {
-        "documento_id": "DOC-TESTE-003",
-        "classificacao": "ambiguidade",
-        "destino_principal": "auditoria-humana/ambiguidade",
-        "score_confianca": 0.41,
-        "justificativa": "Nome, CRM e dose ilegíveis ou ausentes.",
-        "alerta_enviado": False,
-        "dados_extraidos": {
-            "paciente": "M[ilegível] S[ilegível], idade não informada",
-            "medico": "CRM [ilegível]",
-            "conteudo": "Prescrição ilegível: 5 ou 50 mg, 1 cp 12/12h",
-        },
-    },
-}
 
 BANNER = {"rotina": st.success, "urgencia": st.error, "ambiguidade": st.warning}
 ROTULO = {"rotina": "ROTINA", "urgencia": "URGÊNCIA", "ambiguidade": "AMBIGUIDADE"}
 
 
-def triar(arquivo, canal, caso_mock):
-    """Simula a chamada à API. Depois: requests.post(URL_API, files=...)."""
-    time.sleep(1.5)
-    return MOCKS[caso_mock]
+def triar(arquivo, canal, caso_mock=None):
+    """Envia o arquivo para POST /triagem e devolve o JSON de triagem."""
+    dados = {"canal_origem": canal}
+    if caso_mock is not None:
+        dados["caso_mock"] = caso_mock
+    resposta = requests.post(
+        f"{os.getenv('API_URL', 'http://localhost:8000').rstrip('/')}/triagem",
+        files={
+            "arquivo": (
+                arquivo.name,
+                arquivo.getvalue(),
+                arquivo.type or "application/octet-stream",
+            )
+        },
+        data=dados,
+        timeout=75,
+    )
+    resposta.raise_for_status()
+    return resposta.json()
 
 
 st.sidebar.header("Modo de teste")
-caso = st.sidebar.selectbox("JSON mockado", list(MOCKS), format_func=ROTULO.get)
+caso = st.sidebar.selectbox(
+    "Cenário simulado (só vale com AGENT_MODE=mock)",
+    [None, *ROTULO],
+    format_func=lambda c: "Automático (pelo ID do documento)" if c is None else ROTULO[c],
+)
 
 st.title("MediFlow")
 st.caption("Triagem de documentos médicos. Somente dados fictícios.")
@@ -78,9 +59,13 @@ if resultado is None:
         if arquivo is None:
             st.warning("Selecione um arquivo antes de enviar.")
         else:
-            with st.spinner("Processando documento…"):
-                st.session_state["resultado"] = triar(arquivo, canal, caso)
-            st.rerun()
+            try:
+                with st.spinner("Processando documento…"):
+                    st.session_state["resultado"] = triar(arquivo, canal, caso)
+            except requests.RequestException as erro:
+                st.error(f"Não foi possível concluir a triagem: {erro}")
+            else:
+                st.rerun()
 else:
     rota = resultado["classificacao"]
     BANNER[rota](f"**{ROTULO[rota]}** — salvo em `{resultado['destino_principal']}`")
