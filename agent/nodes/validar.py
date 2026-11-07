@@ -1,6 +1,7 @@
 """Nó Validar: confere a extração e registra violações das regras de triagem."""
 
 from datetime import date, datetime
+from decimal import Decimal
 import re
 import unicodedata
 
@@ -266,12 +267,28 @@ def validar(state: dict) -> dict:
 
     # Confirma que os dados normalizados atendem também ao contrato clínico público.
     DadosExtraidos.model_validate(dados.model_dump())
+    violacoes = {(item.codigo, item.campo) for item in ocorrencias}
+    componentes = {
+        "C": Decimal(str(extracao.classificacao.score_confianca_classificacao)),
+        "P": Decimal(len(campos) - len(ausentes)) / len(campos) if campos else Decimal(0),
+        "K": max(Decimal(0), Decimal(1) - Decimal(str(config.penalidade_consistencia)) * len(violacoes)),
+        "L": Decimal(str(extracao.legibilidade)),
+    }
+    score = sum(
+        Decimal(str(getattr(config.pesos, nome))) * valor
+        for nome, valor in componentes.items()
+    )
+    # Absorve a tolerância numérica permitida na soma dos pesos da configuração.
+    score = min(Decimal(1), score)
     state["validacao"] = {
         "dados_validados": extracao.model_dump(mode="json"),
         "ocorrencias": [ocorrencia.model_dump() for ocorrencia in ocorrencias],
         "impedimentos_aprovacao": sorted(impedimentos),
-        "componentes_score": {"P": (len(campos) - len(ausentes)) / len(campos) if campos else 0.0},
+        "componentes_score": {nome: float(valor) for nome, valor in componentes.items()},
+        "limiar_confianca": config.limiar_confianca,
+        "atinge_limiar": score >= Decimal(str(config.limiar_confianca)),
         "campos_criticos_ausentes": ausentes,
         "verificacoes_nao_realizadas": nao_verificadas,
     }
+    state["score_confianca"] = float(score)
     return state

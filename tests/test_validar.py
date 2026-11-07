@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from agent.config import carregar_configuracao
+from agent.config import ConfiguracaoTriagem, carregar_configuracao
 from agent.nodes.validar import validar
 from agent.schemas import DadosExtraidos, ExtracaoDocumento
 
@@ -221,6 +221,10 @@ def test_grafo_preserva_validacao_ate_o_proximo_no(extracao, monkeypatch):
     resultado = graph.build_graph().invoke({"documento": {"documento_id": "TESTE"}})
     assert resultado["validacao"]["ocorrencias"] == []
     assert decidir.call_args.args[0]["validacao"] == resultado["validacao"]
+    assert resultado["score_confianca"] == 0.9895
+    assert decidir.call_args.args[0]["score_confianca"] == resultado["score_confianca"]
+    assert resultado["validacao"]["atinge_limiar"] is True
+    assert set(resultado["validacao"]["componentes_score"]) == {"C", "P", "K", "L"}
 
 
 @pytest.mark.parametrize("cid", ["123", "I2.9", "I26.99", "X00-1", "CID I26.9"])
@@ -322,6 +326,7 @@ def test_marcacao_ilegivel_em_campo_critico_bloqueia_sem_duplicar(extracao):
     resultado = executar(extracao)
     assert resultado["componentes_score"]["P"] == 0.75
     assert [item["codigo"] for item in resultado["ocorrencias"]] == ["crm_invalido"]
+    assert resultado["componentes_score"]["K"] == 0.75
 
 
 @pytest.mark.parametrize("medicamentos", [None, []])
@@ -375,3 +380,81 @@ def test_confianca_minima_da_classificacao_usa_configuracao(extracao, confianca)
     extracao["classificacao"]["score_confianca_classificacao"] = confianca
     resultado = executar(extracao)
     assert resultado["impedimentos_aprovacao"] == (["classificacao_insegura"] if confianca < 0.70 else [])
+
+
+def test_score_com_valores_conhecidos(extracao):
+    resultado = validar({"extracao": {"dados_estruturados": extracao}})
+    assert resultado["validacao"]["componentes_score"] == {"C": 0.99, "P": 1, "K": 1, "L": 0.95}
+    assert resultado["score_confianca"] == 0.9895
+    assert resultado["validacao"]["limiar_confianca"] == 0.85
+    assert resultado["validacao"]["verificacoes_nao_realizadas"] == ["cid_diagnostico"]
+
+
+@pytest.mark.parametrize("quantidade,consistencia", [(0, 1), (1, 0.75), (4, 0), (5, 0)])
+def test_consistencia_desconta_violacoes_com_piso_zero(extracao, quantidade, consistencia):
+    extracao["evidencias"]["campos_ilegiveis"] = [
+        "dados_extraidos.paciente.idade", "evidencias.procedimento", "evidencias.conclusao",
+        "dados_extraidos.medico_prescritor.nome", "dados_extraidos.cid_sugerido",
+    ][:quantidade]
+    resultado = executar(extracao)
+    assert len(resultado["ocorrencias"]) == quantidade
+    assert resultado["componentes_score"]["K"] == consistencia
+
+
+def test_mesma_falha_ilegivel_e_penalizada_uma_vez(extracao):
+    extracao["evidencias"]["campos_ilegiveis"] = ["dados_extraidos.paciente.idade"] * 3
+    assert executar(extracao)["componentes_score"]["K"] == 0.75
+
+
+@pytest.mark.parametrize("legibilidade,score,atinge", [
+    (0.199999, 0.84999985, False), (0.2, 0.85, True), (0.200001, 0.85000015, True),
+])
+def test_limiar_sem_arredondar_o_score(extracao, legibilidade, score, atinge):
+    extracao["classificacao"]["score_confianca_classificacao"] = 0.9
+    extracao["legibilidade"] = legibilidade
+    resultado = validar({"extracao": {"dados_estruturados": extracao}})
+    assert resultado["score_confianca"] == score
+    assert resultado["validacao"]["atinge_limiar"] is atinge
+
+
+def test_score_alto_preserva_impedimento_de_validacao_grave(extracao):
+    extracao["dados_extraidos"]["medico_prescritor"]["crm"] = None
+    resultado = validar({"extracao": {"dados_estruturados": extracao}})
+    assert resultado["score_confianca"] == 0.852
+    assert resultado["validacao"]["atinge_limiar"] is True
+    assert resultado["validacao"]["impedimentos_aprovacao"] == ["crm_invalido"]
+
+
+def test_score_usa_pesos_penalidade_e_limiar_editados_no_arquivo(extracao, tmp_path, monkeypatch):
+    dados = carregar_configuracao().model_dump()
+    dados.update(
+        pesos={"C": 0.1, "P": 0.2, "K": 0.3, "L": 0.4},
+        penalidade_consistencia=0.1, limiar_confianca=0.95,
+    )
+    arquivo = tmp_path / "triagem.json"
+    arquivo.write_text(json.dumps(dados), encoding="utf-8")
+    monkeypatch.setattr("agent.nodes.validar.carregar_configuracao", lambda: carregar_configuracao(arquivo))
+    extracao["evidencias"]["campos_ilegiveis"] = ["dados_extraidos.paciente.idade"]
+    resultado = validar({"extracao": {"dados_estruturados": extracao}})
+    assert resultado["validacao"]["componentes_score"]["K"] == 0.9
+    assert resultado["score_confianca"] == 0.949
+    assert resultado["validacao"]["atinge_limiar"] is False
+    dados["limiar_confianca"] = 0.94
+    arquivo.write_text(json.dumps(dados), encoding="utf-8")
+    assert executar(extracao)["atinge_limiar"] is True
+
+
+def test_tolerancia_da_soma_dos_pesos_mantem_score_no_intervalo(extracao, monkeypatch):
+    dados = carregar_configuracao().model_dump()
+    dados["pesos"]["C"] += 1e-10
+    config = ConfiguracaoTriagem.model_validate(dados)
+    monkeypatch.setattr("agent.nodes.validar.carregar_configuracao", lambda: config)
+    extracao["classificacao"]["score_confianca_classificacao"] = 1
+    extracao["legibilidade"] = 1
+    assert validar({"extracao": {"dados_estruturados": extracao}})["score_confianca"] == 1
+
+
+def test_limiar_de_rules_vem_da_configuracao():
+    from agent.rules import LIMIAR_CONFIANCA
+
+    assert LIMIAR_CONFIANCA == carregar_configuracao().limiar_confianca == 0.85
