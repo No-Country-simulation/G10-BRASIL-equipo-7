@@ -8,6 +8,7 @@
   "limiar_confianca": 0.85,
   "penalidade_consistencia": 0.25,
   "confianca_minima_classificacao": 0.70,
+  "referencias_cid": {},
   "campos_esperados": {
     "Receituário Médico": [
       "dados_extraidos.paciente.nome",

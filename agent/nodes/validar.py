@@ -32,10 +32,111 @@ def _ilegivel(campo: str, campos_ilegiveis: list[str]) -> bool:
     return any(campo == marcado or campo.startswith(f"{marcado}.") for marcado in campos_ilegiveis)
 
 
-def _nome_normalizado(nome: str) -> str:
-    texto = unicodedata.normalize("NFKD", nome.casefold())
+def _texto_normalizado(valor: str) -> str:
+    texto = unicodedata.normalize("NFKD", valor.casefold())
     sem_acentos = "".join(letra for letra in texto if not unicodedata.combining(letra))
     return " ".join(sem_acentos.split())
+
+
+def _preenchido(campo: str, valor, ilegiveis: list[str]) -> bool:
+    if valor is None or _ilegivel(campo, ilegiveis):
+        return False
+    if isinstance(valor, (str, list, dict)) and not valor:
+        return False
+    if isinstance(valor, str) and "ilegivel" in _texto_normalizado(valor):
+        # Um número de CRM legível continua preenchido quando só falta a UF.
+        return campo.endswith(".crm") and _normalizar_crm(valor) is not None
+    return True
+
+
+def _expandir_campo(valor, partes: list[str], caminho: str = "") -> list[tuple[str, object]]:
+    if not partes:
+        return [(caminho, valor)]
+    parte, *restantes = partes
+    if parte == "*":
+        itens = enumerate(valor) if isinstance(valor, list) and valor else [("*", None)]
+        campos = []
+        for indice, item in itens:
+            campos.extend(_expandir_campo(item, restantes, f"{caminho}.{indice}"))
+        return campos
+    item = valor.get(parte) if isinstance(valor, dict) else None
+    return _expandir_campo(item, restantes, f"{caminho}.{parte}".lstrip("."))
+
+
+def _validar_leves(
+    extracao: ExtracaoDocumento, fonte: dict, campos_criticos: list[str],
+    referencias: dict[str, list[str]], ocorrencias: list[OcorrenciaValidacao],
+) -> list[str]:
+    dados = extracao.dados_extraidos
+    cid = dados.cid_sugerido
+    correspondencia_verificada = False
+    if _ilegivel("dados_extraidos.cid_sugerido", extracao.evidencias.campos_ilegiveis):
+        dados.cid_sugerido = None
+    elif cid:
+        if re.fullmatch(r"[A-Z][0-9]{2}(?:\.?[0-9])?", cid.upper()) is None:
+            ocorrencias.append(OcorrenciaValidacao(
+                codigo="cid_invalido", campo="dados_extraidos.cid_sugerido", gravidade="leve",
+                motivo="CID fora do formato esperado.", valor_original=cid,
+            ))
+            dados.cid_sugerido = None
+        elif dados.diagnostico_principal and not _ilegivel(
+            "dados_extraidos.diagnostico_principal", extracao.evidencias.campos_ilegiveis,
+        ):
+            codigo = cid.upper().replace(".", "")
+            diagnostico = _texto_normalizado(dados.diagnostico_principal)
+            codigos_conhecidos = {chave.upper().replace(".", "") for chave in referencias}
+            codigos_diagnostico = {
+                chave.upper().replace(".", "") for chave, nomes in referencias.items()
+                if diagnostico in {_texto_normalizado(nome) for nome in nomes}
+            }
+            correspondencia_verificada = codigo in codigos_conhecidos and bool(codigos_diagnostico)
+            if correspondencia_verificada and codigo not in codigos_diagnostico:
+                ocorrencias.append(OcorrenciaValidacao(
+                    codigo="cid_diagnostico_incompativel", campo="dados_extraidos.cid_sugerido",
+                    gravidade="leve", motivo="CID e diagnóstico divergem na tabela de referência revisada.",
+                    valor_original=cid,
+                ))
+
+    for papel in ("medico_solicitante", "medico_prescritor"):
+        medico = getattr(dados, papel)
+        if medico and medico.crm:
+            if medico.crm.isdigit():
+                ocorrencias.append(OcorrenciaValidacao(
+                    codigo="crm_uf_ausente", campo=f"dados_extraidos.{papel}.crm", gravidade="leve",
+                    motivo="Número de CRM presente, mas UF ausente ou ilegível.",
+                ))
+            if medico.nome is None:
+                ocorrencias.append(OcorrenciaValidacao(
+                    codigo="nome_medico_ausente", campo=f"dados_extraidos.{papel}.nome", gravidade="leve",
+                    motivo="Nome do médico ausente, com CRM presente.",
+                ))
+
+    if any(campo.startswith("dados_extraidos.medicamentos.") for campo in campos_criticos):
+        for indice, medicamento in enumerate(dados.medicamentos or []):
+            if medicamento.posologia is None:
+                ocorrencias.append(OcorrenciaValidacao(
+                    codigo="posologia_ausente", campo=f"dados_extraidos.medicamentos.{indice}.posologia",
+                    gravidade="leve", motivo="Posologia ausente em receita.",
+                ))
+    if fonte["evidencias"]["data_documento"] is None:
+        ocorrencias.append(OcorrenciaValidacao(
+            codigo="data_documento_ausente", campo="evidencias.data_documento", gravidade="leve",
+            motivo="Data do documento ausente.",
+        ))
+
+    for campo in dict.fromkeys(extracao.evidencias.campos_ilegiveis):
+        critico = any(
+            _ilegivel(esperado, [campo]) or _ilegivel(campo, [esperado])
+            for esperado in campos_criticos
+        )
+        registrado = any(_ilegivel(item.campo, [campo]) for item in ocorrencias)
+        if not critico and not registrado:
+            ocorrencias.append(OcorrenciaValidacao(
+                codigo="trecho_ilegivel", campo=campo, gravidade="leve",
+                motivo="Trecho ilegível em campo não crítico.",
+                valor_original=cid if campo == "dados_extraidos.cid_sugerido" else None,
+            ))
+    return [] if correspondencia_verificada else ["cid_diagnostico"]
 
 
 def _validar_datas(extracao: ExtracaoDocumento) -> list[OcorrenciaValidacao]:
@@ -79,7 +180,9 @@ def _validar_datas(extracao: ExtracaoDocumento) -> list[OcorrenciaValidacao]:
 
 def validar(state: dict) -> dict:
     extracao = ExtracaoDocumento.model_validate(state["extracao"]["dados_estruturados"])
-    esperados = carregar_configuracao().campos_esperados.get(extracao.classificacao.tipo_documento, [])
+    fonte = extracao.model_dump(mode="json")
+    config = carregar_configuracao()
+    esperados = config.campos_esperados.get(extracao.classificacao.tipo_documento, [])
     dados = extracao.dados_extraidos
     ilegiveis = extracao.evidencias.campos_ilegiveis
     ocorrencias = []
@@ -134,7 +237,7 @@ def validar(state: dict) -> dict:
     nomes = list(extracao.evidencias.nomes_pacientes)
     if paciente and paciente.nome and not _ilegivel("dados_extraidos.paciente.nome", ilegiveis):
         nomes.append(paciente.nome)
-    if len({_nome_normalizado(nome) for nome in nomes}) > 1:
+    if len({_texto_normalizado(nome) for nome in nomes}) > 1:
         ocorrencias.append(OcorrenciaValidacao(
             codigo="identidade_conflitante", campo="dados_extraidos.paciente.nome", gravidade="grave",
             motivo="Nomes distintos de pacientes encontrados no mesmo documento.",
@@ -142,11 +245,33 @@ def validar(state: dict) -> dict:
         if paciente:
             paciente.nome = None
 
+    campos = []
+    for esperado in esperados:
+        campos.extend(_expandir_campo(fonte, esperado.split(".")))
+    ausentes = [campo for campo, valor in campos if not _preenchido(campo, valor, ilegiveis)]
+    for campo in ausentes:
+        if not any(item.campo == campo and item.gravidade == "grave" for item in ocorrencias):
+            ocorrencias.append(OcorrenciaValidacao(
+                codigo="campo_critico_ausente", campo=campo, gravidade="grave",
+                motivo="Campo crítico ausente ou ilegível para a categoria do documento.",
+            ))
+    nao_verificadas = _validar_leves(
+        extracao, fonte, [campo for campo, _ in campos], config.referencias_cid, ocorrencias,
+    )
+    impedimentos = {item.codigo for item in ocorrencias if item.gravidade == "grave"}
+    if not esperados or _texto_normalizado(extracao.classificacao.tipo_documento) == "indefinido":
+        impedimentos.add("categoria_indefinida")
+    if extracao.classificacao.score_confianca_classificacao < config.confianca_minima_classificacao:
+        impedimentos.add("classificacao_insegura")
+
     # Confirma que os dados normalizados atendem também ao contrato clínico público.
     DadosExtraidos.model_validate(dados.model_dump())
     state["validacao"] = {
         "dados_validados": extracao.model_dump(mode="json"),
         "ocorrencias": [ocorrencia.model_dump() for ocorrencia in ocorrencias],
-        "impedimentos_aprovacao": sorted({ocorrencia.codigo for ocorrencia in ocorrencias}),
+        "impedimentos_aprovacao": sorted(impedimentos),
+        "componentes_score": {"P": (len(campos) - len(ausentes)) / len(campos) if campos else 0.0},
+        "campos_criticos_ausentes": ausentes,
+        "verificacoes_nao_realizadas": nao_verificadas,
     }
     return state

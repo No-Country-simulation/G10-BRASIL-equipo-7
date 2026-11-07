@@ -32,6 +32,9 @@ class ConfiguracaoTriagem(ModeloContrato):
         dict[TextoNaoVazio, Annotated[list[TextoNaoVazio], Field(min_length=1)]],
         Field(min_length=1),
     ]
+    referencias_cid: dict[
+        TextoNaoVazio, Annotated[list[TextoNaoVazio], Field(min_length=1)]
+    ] = Field(default_factory=dict)
 
 
 def carregar_configuracao(caminho: str | Path | None = None) -> ConfiguracaoTriagem:

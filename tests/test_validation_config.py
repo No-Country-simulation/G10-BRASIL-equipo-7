@@ -73,7 +73,7 @@ def test_ocorrencia_registra_gravidade_e_campo(gravidade):
         with pytest.raises(ValidationError):
             OcorrenciaValidacao.model_validate(dados)
     else:
-        assert OcorrenciaValidacao.model_validate(dados).model_dump() == dados
+        assert OcorrenciaValidacao.model_validate(dados).model_dump(exclude_none=True) == dados
 
 
 def test_configuracao_independe_do_diretorio_atual(tmp_path, monkeypatch):
@@ -90,6 +90,7 @@ def test_carrega_valores_editados_no_arquivo(tmp_path):
     dados = carregar_configuracao().model_dump()
     dados["pesos"] = {"C": 0.25, "P": 0.25, "K": 0.25, "L": 0.25}
     dados["limiar_confianca"] = 0.9
+    dados["referencias_cid"] = {"X01": ["Diagnóstico fictício"]}
     arquivo = tmp_path / "triagem.json"
     arquivo.write_text(json.dumps(dados), encoding="utf-8")
     assert carregar_configuracao(arquivo).model_dump() == dados
@@ -105,6 +106,7 @@ def test_carrega_valores_editados_no_arquivo(tmp_path):
     {"confianca_minima_classificacao": 1.1}, {"limiar_confianca": True},
     {"campos_esperados": {}}, {"campos_esperados": {"Receituário Médico": []}},
     {"campo_desconhecido": 1},
+    {"referencias_cid": {"X01": []}}, {"referencias_cid": {"X01": "Diagnóstico fictício"}},
 ])
 def test_configuracao_rejeita_valores_invalidos(alteracao):
     dados = carregar_configuracao().model_dump()
