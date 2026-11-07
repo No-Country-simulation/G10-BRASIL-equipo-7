@@ -11,6 +11,7 @@ from agent.nodes.validar import validar
 class TriagemState(TypedDict, total=False):
     documento: dict
     extracao: dict
+    validacao: dict
     score_confianca: float
     classificacao: str
     destino_principal: str

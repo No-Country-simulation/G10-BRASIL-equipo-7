@@ -59,11 +59,20 @@ class EvidenciasExtracao(ModeloContrato):
     campos_ilegiveis: list[TextoNaoVazio] = Field(default_factory=list)
 
 
+class PacienteExtraido(Paciente):
+    # O nó validar registra idades fora do intervalo antes da normalização.
+    idade: int | None = None
+
+
+class DadosExtraidosBrutos(DadosExtraidos):
+    paciente: PacienteExtraido | None = None
+
+
 class ExtracaoDocumento(ModeloContrato):
     """Contrato da resposta do extrator, anterior ao cálculo de score e roteamento."""
 
     classificacao: Classificacao
-    dados_extraidos: DadosExtraidos
+    dados_extraidos: DadosExtraidosBrutos
     legibilidade: ScoreConfianca
     evidencias: EvidenciasExtracao = Field(default_factory=EvidenciasExtracao)
 
