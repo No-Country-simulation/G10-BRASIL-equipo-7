@@ -12,11 +12,10 @@
       "nome": "Carlos Eduardo Mendes",
       "idade": 52
     },
-    "medico_solicitante": {
+    "medico_responsavel": {
       "nome": "Dra. Renata Silveira",
       "crm": "145892-SP"
     },
-    "medico_prescritor": null,
     "medicamentos": null,
     "exame_realizado": "Tomografia de Torax com contraste",
     "diagnostico_principal": "Tromboembolismo Pulmonar Agudo (TEP)",

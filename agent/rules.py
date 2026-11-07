@@ -1,11 +1,11 @@
-"""Regras de triagem (#5). Preencher quando a issue fechar."""
+"""Destinos da triagem e limiar carregado da configuração na inicialização."""
 
-LIMIAR_CONFIANCA = 0.8  # PROVISÓRIO: definir na #5
+from agent.config import carregar_configuracao
+
+LIMIAR_CONFIANCA = carregar_configuracao().limiar_confianca
 
 DESTINOS = {
     "rotina": "processados/rotina",
     "urgencia": "processados/urgencia",
     "ambiguidade": "auditoria-humana/ambiguidade",
 }
-
-# Em aberto na #5: urgente + baixa confiança vai para auditoria, alerta ou os dois?

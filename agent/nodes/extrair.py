@@ -3,7 +3,7 @@
 from pathlib import Path
 from google.genai import types
 
-from agent.gemini_rotator import gemini_rotator
+from agent.schemas import ExtracaoDocumento
 
 MIMES_NATIVOS = {
     ".pdf": "application/pdf",
@@ -13,13 +13,32 @@ MIMES_NATIVOS = {
 }
 
 PROMPT_SISTEMA = """
-Analise o documento clínico em anexo e extraia as informações estruturadas em formato JSON com os campos:
-- tipo_documento (ex: Receita, Laudo, Encaminhamento)
-- paciente (nome, idade se houver)
-- medico (nome, crm se houver)
-- medicamentos (lista com nome, dosagem, posologia)
-- hipotese_diagnostica
-- cid_sugerido
+Analise o documento clínico e retorne exclusivamente um JSON conforme o esquema fornecido.
+Preencha classificacao, dados_extraidos, legibilidade e evidencias.
+Use null para informações ausentes ou ilegíveis e listas vazias quando não houver itens.
+Transcreva os dados do documento, preservando valores conflitantes nas evidências.
+
+Em classificacao.tipo_documento, use a categoria correspondente:
+Receituário Médico, Laudo de Exame de Imagem, Laudo de Exame Laboratorial,
+Guia de Solicitação de Procedimento, Relatório de Alta/Internação ou Atestado Médico.
+Use Indefinido quando a categoria não puder ser identificada.
+Em classificacao.score_confianca_classificacao, informe C, sua confiança na classificação,
+entre 0 e 1. Em legibilidade, informe L, a qualidade de leitura do documento, entre 0 e 1.
+O cálculo de completude, consistência, score geral e roteamento ocorre nas próximas etapas.
+
+Em dados_extraidos, identifique paciente, medico_responsavel, medicamentos, exame,
+diagnóstico principal e CID sugerido quando presentes.
+Para medico_responsavel, priorize quem assina ou emite o documento: o prescritor na receita,
+o autor do laudo, o solicitante na guia de procedimento ou o emissor do atestado/relatório.
+Se a autoria não estiver explícita, use o único médico claramente vinculado ao ato principal.
+Use as evidências de responsabilidade, e não a quantidade de vezes que o nome aparece.
+Extraia nome e CRM do mesmo profissional. Se houver vários candidatos sem responsabilidade
+clara, retorne medico_responsavel como null e marque dados_extraidos.medico_responsavel
+em evidencias.campos_ilegiveis para revisão humana.
+Em evidencias, transcreva as datas do documento, internação e alta como aparecem na fonte,
+o procedimento, a conclusão, os dias de afastamento e os nomes de pacientes encontrados.
+Liste os caminhos dos campos ilegíveis relativos ao esquema, por exemplo
+dados_extraidos.paciente.nome ou dados_extraidos.medicamentos.0.dosagem.
 """
 
 
@@ -63,14 +82,26 @@ def extrair(state: dict) -> dict:
             "O documento não contém 'bytes' nem 'documento_texto' válidos."
         )
 
-    # Chamada única ao Gemini com o prompt + arquivo nativo
+    # Inicializa o cliente apenas quando há um documento para processar.
+    from agent.gemini_rotator import gemini_rotator
+
     resposta = gemini_rotator.generate_content(
         model="gemini-3.5-flash-lite",
         contents=contents,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=ExtracaoDocumento.model_json_schema(),
+        ),
     )
 
+    conteudo_bruto = resposta.text
+    if not isinstance(conteudo_bruto, str) or not conteudo_bruto.strip():
+        raise ValueError("O Gemini retornou uma resposta vazia para a extração.")
+    dados = ExtracaoDocumento.model_validate_json(conteudo_bruto)
+
     state["extracao"] = {
-        "conteudo_bruto": resposta.text,
+        "conteudo_bruto": conteudo_bruto,
+        "dados_estruturados": dados.model_dump(mode="json"),
     }
     return state
 

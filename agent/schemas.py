@@ -37,12 +37,74 @@ class Medicamento(ModeloContrato):
 
 class DadosExtraidos(ModeloContrato):
     paciente: Paciente | None = None
-    medico_solicitante: Medico | None = None
-    medico_prescritor: Medico | None = None
+    medico_responsavel: Medico | None = Field(
+        default=None, description="Médico responsável pela emissão ou pelo ato principal do documento.",
+    )
     medicamentos: list[Medicamento] | None = None
     exame_realizado: TextoNaoVazio | None = None
     diagnostico_principal: TextoNaoVazio | None = None
     cid_sugerido: TextoNaoVazio | None = None
+
+
+class EvidenciasExtracao(ModeloContrato):
+    """Dados internos, preservados para as verificações clínicas do nó validar."""
+
+    # Datas ficam como texto para permitir registrar datas inválidas como violações.
+    data_documento: TextoNaoVazio | None = None
+    data_internacao: TextoNaoVazio | None = None
+    data_alta: TextoNaoVazio | None = None
+    procedimento: TextoNaoVazio | None = None
+    conclusao: TextoNaoVazio | None = None
+    dias_afastamento: int | None = None
+    nomes_pacientes: list[TextoNaoVazio] = Field(default_factory=list)
+    campos_ilegiveis: list[TextoNaoVazio] = Field(default_factory=list)
+
+
+class PacienteExtraido(Paciente):
+    # O nó validar registra idades fora do intervalo antes da normalização.
+    idade: int | None = None
+
+
+class DadosExtraidosBrutos(DadosExtraidos):
+    paciente: PacienteExtraido | None = None
+
+
+def _textos_ausentes(valor):
+    if isinstance(valor, dict):
+        return {campo: _textos_ausentes(item) for campo, item in valor.items()}
+    if isinstance(valor, list):
+        return [_textos_ausentes(item) for item in valor]
+    if isinstance(valor, str) and not valor.strip():
+        return None
+    return valor
+
+
+class ExtracaoDocumento(ModeloContrato):
+    """Contrato da resposta do extrator, anterior ao cálculo de score e roteamento."""
+
+    classificacao: Classificacao
+    dados_extraidos: DadosExtraidosBrutos
+    legibilidade: ScoreConfianca
+    evidencias: EvidenciasExtracao = Field(default_factory=EvidenciasExtracao)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalizar_textos_ausentes(cls, valor):
+        if not isinstance(valor, dict):
+            return valor
+        dados = dict(valor)
+        for campo in ("dados_extraidos", "evidencias"):
+            if campo in dados:
+                dados[campo] = _textos_ausentes(dados[campo])
+        return dados
+
+
+class OcorrenciaValidacao(ModeloContrato):
+    codigo: TextoNaoVazio
+    campo: TextoNaoVazio
+    gravidade: Literal["grave", "leve"]
+    motivo: TextoNaoVazio
+    valor_original: str | None = None
 
 
 class Notificacao(ModeloContrato):

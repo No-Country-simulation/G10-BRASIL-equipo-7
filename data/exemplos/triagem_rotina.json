@@ -12,8 +12,7 @@
       "nome": "Maria Souza Lima",
       "idade": 45
     },
-    "medico_solicitante": null,
-    "medico_prescritor": {
+    "medico_responsavel": {
       "nome": "Dr. Paulo Andrade",
       "crm": "123456-SP"
     },
