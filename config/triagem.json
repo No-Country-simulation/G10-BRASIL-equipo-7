@@ -1,0 +1,43 @@
+{
+  "pesos": {
+    "C": 0.30,
+    "P": 0.30,
+    "K": 0.25,
+    "L": 0.15
+  },
+  "limiar_confianca": 0.85,
+  "penalidade_consistencia": 0.25,
+  "confianca_minima_classificacao": 0.70,
+  "campos_esperados": {
+    "Receituário Médico": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.medico_prescritor.crm",
+      "dados_extraidos.medicamentos.*.nome",
+      "dados_extraidos.medicamentos.*.dosagem"
+    ],
+    "Laudo de Exame de Imagem": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.exame_realizado",
+      "evidencias.conclusao"
+    ],
+    "Laudo de Exame Laboratorial": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.exame_realizado",
+      "evidencias.conclusao"
+    ],
+    "Guia de Solicitação de Procedimento": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.medico_solicitante.crm",
+      "evidencias.procedimento"
+    ],
+    "Relatório de Alta/Internação": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.diagnostico_principal"
+    ],
+    "Atestado Médico": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.medico_prescritor.crm",
+      "evidencias.dias_afastamento"
+    ]
+  }
+}

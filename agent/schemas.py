@@ -45,6 +45,36 @@ class DadosExtraidos(ModeloContrato):
     cid_sugerido: TextoNaoVazio | None = None
 
 
+class EvidenciasExtracao(ModeloContrato):
+    """Dados internos, preservados para as verificações clínicas do nó validar."""
+
+    # Datas ficam como texto para permitir registrar datas inválidas como violações.
+    data_documento: TextoNaoVazio | None = None
+    data_internacao: TextoNaoVazio | None = None
+    data_alta: TextoNaoVazio | None = None
+    procedimento: TextoNaoVazio | None = None
+    conclusao: TextoNaoVazio | None = None
+    dias_afastamento: int | None = None
+    nomes_pacientes: list[TextoNaoVazio] = Field(default_factory=list)
+    campos_ilegiveis: list[TextoNaoVazio] = Field(default_factory=list)
+
+
+class ExtracaoDocumento(ModeloContrato):
+    """Contrato da resposta do extrator, anterior ao cálculo de score e roteamento."""
+
+    classificacao: Classificacao
+    dados_extraidos: DadosExtraidos
+    legibilidade: ScoreConfianca
+    evidencias: EvidenciasExtracao = Field(default_factory=EvidenciasExtracao)
+
+
+class OcorrenciaValidacao(ModeloContrato):
+    codigo: TextoNaoVazio
+    campo: TextoNaoVazio
+    gravidade: Literal["grave", "leve"]
+    motivo: TextoNaoVazio
+
+
 class Notificacao(ModeloContrato):
     canal: TextoNaoVazio
     mensagem: TextoNaoVazio
