@@ -25,7 +25,7 @@ def test_extracao_preserva_evidencias_para_validacoes_posteriores(extracao):
         "data_documento": "2026-02-30", "data_internacao": "2026-11-05",
         "data_alta": "2026-11-04", "procedimento": None, "conclusao": "Achado crítico",
         "dias_afastamento": 0, "nomes_pacientes": ["Paciente A", "Paciente B"],
-        "campos_ilegiveis": ["dados_extraidos.medico_solicitante.crm"],
+        "campos_ilegiveis": ["dados_extraidos.medico_responsavel.crm"],
     }
     resultado = ExtracaoDocumento.model_validate({**extracao, "evidencias": evidencias})
     assert resultado.evidencias.model_dump() == evidencias

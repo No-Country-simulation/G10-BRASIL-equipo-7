@@ -26,8 +26,15 @@ Em classificacao.score_confianca_classificacao, informe C, sua confiança na cla
 entre 0 e 1. Em legibilidade, informe L, a qualidade de leitura do documento, entre 0 e 1.
 O cálculo de completude, consistência, score geral e roteamento ocorre nas próximas etapas.
 
-Em dados_extraidos, identifique paciente, médicos solicitante e prescritor conforme seus
-papéis, medicamentos, exame, diagnóstico principal e CID sugerido quando presentes.
+Em dados_extraidos, identifique paciente, medico_responsavel, medicamentos, exame,
+diagnóstico principal e CID sugerido quando presentes.
+Para medico_responsavel, priorize quem assina ou emite o documento: o prescritor na receita,
+o autor do laudo, o solicitante na guia de procedimento ou o emissor do atestado/relatório.
+Se a autoria não estiver explícita, use o único médico claramente vinculado ao ato principal.
+Use as evidências de responsabilidade, e não a quantidade de vezes que o nome aparece.
+Extraia nome e CRM do mesmo profissional. Se houver vários candidatos sem responsabilidade
+clara, retorne medico_responsavel como null e marque dados_extraidos.medico_responsavel
+em evidencias.campos_ilegiveis para revisão humana.
 Em evidencias, transcreva as datas do documento, internação e alta como aparecem na fonte,
 o procedimento, a conclusão, os dias de afastamento e os nomes de pacientes encontrados.
 Liste os caminhos dos campos ilegíveis relativos ao esquema, por exemplo

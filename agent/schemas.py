@@ -37,8 +37,9 @@ class Medicamento(ModeloContrato):
 
 class DadosExtraidos(ModeloContrato):
     paciente: Paciente | None = None
-    medico_solicitante: Medico | None = None
-    medico_prescritor: Medico | None = None
+    medico_responsavel: Medico | None = Field(
+        default=None, description="Médico responsável pela emissão ou pelo ato principal do documento.",
+    )
     medicamentos: list[Medicamento] | None = None
     exame_realizado: TextoNaoVazio | None = None
     diagnostico_principal: TextoNaoVazio | None = None

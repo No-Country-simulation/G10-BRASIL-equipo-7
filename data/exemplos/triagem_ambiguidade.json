@@ -12,8 +12,7 @@
       "nome": null,
       "idade": null
     },
-    "medico_solicitante": null,
-    "medico_prescritor": {
+    "medico_responsavel": {
       "nome": null,
       "crm": null
     },

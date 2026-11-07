@@ -24,7 +24,10 @@ def cliente_simulado(monkeypatch):
             "nivel_prioridade": "Urgente",
             "score_confianca_classificacao": 0.99,
         },
-        "dados_extraidos": {"paciente": {"nome": "Paciente fictício", "idade": 52}},
+        "dados_extraidos": {
+            "paciente": {"nome": "Paciente fictício", "idade": 52},
+            "medico_responsavel": {"nome": "Médico fictício", "crm": "123456-SP"},
+        },
         "legibilidade": 0.95,
         "evidencias": {"conclusao": "Achado crítico", "data_documento": "06/11/2026"},
     }
@@ -66,6 +69,9 @@ def test_envia_binario_e_valida_resposta_pelo_contrato(cliente_simulado, nome, m
     )
     assert resultado is state
     assert resultado["documento"] == original
+    assert resultado["extracao"]["dados_estruturados"]["dados_extraidos"]["medico_responsavel"] == {
+        "nome": "Médico fictício", "crm": "123456-SP",
+    }
     assert resultado["outro_campo"] == "preservado"
 
 

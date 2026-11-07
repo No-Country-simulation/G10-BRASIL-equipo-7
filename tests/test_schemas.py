@@ -20,8 +20,7 @@ CLASSIFICACAO = {
 def test_dados_clinicos_aninhados_preservam_os_valores():
     dados = {
         "paciente": {"nome": "Carlos Eduardo Mendes", "idade": 52},
-        "medico_solicitante": {"nome": "Dra. Renata Silveira", "crm": "145892-SP"},
-        "medico_prescritor": {"nome": "Dr. Paulo Andrade", "crm": "123456-SP"},
+        "medico_responsavel": {"nome": "Dra. Renata Silveira", "crm": "145892-SP"},
         "medicamentos": [{"nome": "Losartana", "dosagem": "50 mg", "posologia": "1 ao dia"}],
         "exame_realizado": "Tomografia de Torax com contraste",
         "diagnostico_principal": "Tromboembolismo Pulmonar Agudo",
@@ -31,6 +30,14 @@ def test_dados_clinicos_aninhados_preservam_os_valores():
 
     assert resultado.model_dump() == dados
     assert DadosExtraidos.model_validate_json(resultado.model_dump_json()) == resultado
+
+
+@pytest.mark.parametrize("campo_antigo", ["medico_solicitante", "medico_prescritor"])
+def test_contrato_expoe_apenas_medico_responsavel(campo_antigo):
+    dados = DadosExtraidos(medico_responsavel={"nome": "Médico fictício", "crm": "123456-SP"}).model_dump()
+    assert [campo for campo in dados if campo.startswith("medico_")] == ["medico_responsavel"]
+    with pytest.raises(ValidationError):
+        DadosExtraidos.model_validate({**dados, campo_antigo: None})
 
 
 @pytest.mark.parametrize("modelo", [Paciente, Medico, Medicamento, DadosExtraidos])

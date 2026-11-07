@@ -12,7 +12,7 @@
   "campos_esperados": {
     "Receituário Médico": [
       "dados_extraidos.paciente.nome",
-      "dados_extraidos.medico_prescritor.crm",
+      "dados_extraidos.medico_responsavel.crm",
       "dados_extraidos.medicamentos.*.nome",
       "dados_extraidos.medicamentos.*.dosagem"
     ],
@@ -28,7 +28,7 @@
     ],
     "Guia de Solicitação de Procedimento": [
       "dados_extraidos.paciente.nome",
-      "dados_extraidos.medico_solicitante.crm",
+      "dados_extraidos.medico_responsavel.crm",
       "evidencias.procedimento"
     ],
     "Relatório de Alta/Internação": [
@@ -37,7 +37,7 @@
     ],
     "Atestado Médico": [
       "dados_extraidos.paciente.nome",
-      "dados_extraidos.medico_prescritor.crm",
+      "dados_extraidos.medico_responsavel.crm",
       "evidencias.dias_afastamento"
     ]
   }

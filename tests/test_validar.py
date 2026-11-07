@@ -30,7 +30,7 @@ def extracao():
         },
         "dados_extraidos": {
             "paciente": {"nome": "José da Silva", "idade": 52},
-            "medico_prescritor": {"nome": "Médico fictício", "crm": "145892-SP"},
+            "medico_responsavel": {"nome": "Médico fictício", "crm": "145892-SP"},
             "medicamentos": [{"nome": "Medicamento fictício", "dosagem": "50 mg", "posologia": "1 ao dia"}],
         },
         "legibilidade": 0.95,
@@ -60,38 +60,50 @@ def test_documento_completo_sem_violacoes_graves(extracao):
     ("145892-??", "145892"), ("145892-[ilegível]", "145892"),
 ])
 def test_crm_normaliza_formato_e_distingue_uf_ausente(extracao, crm, esperado):
-    extracao["dados_extraidos"]["medico_prescritor"]["crm"] = crm
+    extracao["dados_extraidos"]["medico_responsavel"]["crm"] = crm
     resultado = executar(extracao)
     assert [item["codigo"] for item in resultado["ocorrencias"]] == (
         [] if "-" in esperado else ["crm_uf_ausente"]
     )
-    assert resultado["dados_validados"]["dados_extraidos"]["medico_prescritor"]["crm"] == esperado
+    assert resultado["dados_validados"]["dados_extraidos"]["medico_responsavel"]["crm"] == esperado
 
 
 @pytest.mark.parametrize("crm", [None, "ilegível", "abc-SP", "145892-123", "12.34-SP", "CRM-SP 123-RJ"])
 def test_crm_obrigatorio_ausente_ou_invalido_e_grave(extracao, crm):
-    extracao["dados_extraidos"]["medico_prescritor"]["crm"] = crm
+    extracao["dados_extraidos"]["medico_responsavel"]["crm"] = crm
     resultado = executar(extracao)
     assert resultado["ocorrencias"][0]["codigo"] == "crm_invalido"
     assert resultado["ocorrencias"][0]["gravidade"] == "grave"
-    assert resultado["dados_validados"]["dados_extraidos"]["medico_prescritor"]["crm"] is None
+    assert resultado["dados_validados"]["dados_extraidos"]["medico_responsavel"]["crm"] is None
 
 
 def test_medico_obrigatorio_ausente_e_crm_marcado_ilegivel(extracao):
-    extracao["dados_extraidos"]["medico_prescritor"] = None
+    extracao["dados_extraidos"]["medico_responsavel"] = None
     assert executar(extracao)["impedimentos_aprovacao"] == ["crm_invalido"]
-    extracao["dados_extraidos"]["medico_prescritor"] = {"crm": "145892-SP"}
-    extracao["evidencias"]["campos_ilegiveis"] = ["dados_extraidos.medico_prescritor"]
-    assert executar(extracao)["impedimentos_aprovacao"] == ["crm_invalido"]
+    extracao["dados_extraidos"]["medico_responsavel"] = {"crm": "145892-SP"}
+    extracao["evidencias"]["campos_ilegiveis"] = ["dados_extraidos.medico_responsavel"]
+    assert executar(extracao)["impedimentos_aprovacao"] == ["crm_invalido", "medico_responsavel_indefinido"]
 
 
-def test_guia_exige_crm_do_solicitante(extracao):
+def test_guia_exige_crm_do_responsavel(extracao):
     extracao["classificacao"]["tipo_documento"] = "Guia de Solicitação de Procedimento"
     extracao["evidencias"]["procedimento"] = "Procedimento fictício"
+    extracao["dados_extraidos"]["medico_responsavel"] = None
     resultado = executar(extracao)
-    assert resultado["ocorrencias"][0]["campo"] == "dados_extraidos.medico_solicitante.crm"
-    extracao["dados_extraidos"]["medico_solicitante"] = {"nome": "Médico fictício", "crm": "145892-SP"}
+    assert resultado["ocorrencias"][0]["campo"] == "dados_extraidos.medico_responsavel.crm"
+    extracao["dados_extraidos"]["medico_responsavel"] = {"nome": "Médico fictício", "crm": "145892-SP"}
     assert executar(extracao)["ocorrencias"] == []
+
+
+def test_responsavel_ambiguo_exige_revisao_mesmo_com_crm_opcional(extracao):
+    extracao["classificacao"]["tipo_documento"] = "Laudo de Exame de Imagem"
+    extracao["dados_extraidos"].update(medico_responsavel=None, exame_realizado="Exame fictício")
+    extracao["evidencias"].update(
+        conclusao="Conclusão fictícia", campos_ilegiveis=["dados_extraidos.medico_responsavel"],
+    )
+    resultado = executar(extracao)
+    assert resultado["atinge_limiar"] is True
+    assert resultado["impedimentos_aprovacao"] == ["medico_responsavel_indefinido"]
 
 
 @pytest.mark.parametrize("idade", [-1, 121, 0, 120, None])
@@ -180,7 +192,7 @@ def test_identidade_compara_nomes_normalizados(extracao, nomes, conflito):
 
 def test_campos_opcionais_ausentes_em_laudo(extracao):
     extracao["classificacao"]["tipo_documento"] = "Laudo de Exame de Imagem"
-    extracao["dados_extraidos"]["medico_prescritor"] = None
+    extracao["dados_extraidos"]["medico_responsavel"] = None
     extracao["dados_extraidos"]["paciente"]["idade"] = None
     extracao["dados_extraidos"]["medicamentos"][0]["dosagem"] = None
     extracao["dados_extraidos"]["exame_realizado"] = "Exame fictício"
@@ -190,7 +202,7 @@ def test_campos_opcionais_ausentes_em_laudo(extracao):
 
 def test_registra_todas_as_violacoes_e_normaliza_sem_perder_a_fonte(extracao):
     extracao["dados_extraidos"]["paciente"]["idade"] = -1
-    extracao["dados_extraidos"]["medico_prescritor"]["crm"] = None
+    extracao["dados_extraidos"]["medico_responsavel"]["crm"] = None
     extracao["dados_extraidos"]["medicamentos"][0]["dosagem"] = "50"
     resultado = executar(extracao)
     assert set(resultado["impedimentos_aprovacao"]) == {
@@ -270,7 +282,7 @@ def test_correspondencia_cid_usa_somente_referencias_conhecidas(
 
 
 def test_violacoes_leves_nao_geram_impedimento_por_si_so(extracao):
-    extracao["dados_extraidos"]["medico_prescritor"].update(nome=None, crm="145892")
+    extracao["dados_extraidos"]["medico_responsavel"].update(nome=None, crm="145892")
     extracao["dados_extraidos"]["medicamentos"][0]["posologia"] = None
     extracao["evidencias"]["data_documento"] = None
     resultado = executar(extracao)
@@ -322,7 +334,7 @@ def test_campo_critico_ausente_vazio_ou_ilegivel_reduz_completude(extracao, nome
 
 
 def test_marcacao_ilegivel_em_campo_critico_bloqueia_sem_duplicar(extracao):
-    extracao["evidencias"]["campos_ilegiveis"] = ["dados_extraidos.medico_prescritor.crm"]
+    extracao["evidencias"]["campos_ilegiveis"] = ["dados_extraidos.medico_responsavel.crm"]
     resultado = executar(extracao)
     assert resultado["componentes_score"]["P"] == 0.75
     assert [item["codigo"] for item in resultado["ocorrencias"]] == ["crm_invalido"]
@@ -358,7 +370,7 @@ def test_valor_preenchido_inconsistente_e_distinto_de_ausencia(extracao):
 def test_campos_esperados_por_categoria(extracao, categoria):
     extracao["classificacao"]["tipo_documento"] = categoria
     extracao["dados_extraidos"].update(
-        medico_solicitante={"nome": "Médico fictício", "crm": "145892-SP"},
+        medico_responsavel={"nome": "Médico fictício", "crm": "145892-SP"},
         exame_realizado="Exame fictício", diagnostico_principal="Diagnóstico fictício",
     )
     extracao["evidencias"].update(conclusao="Conclusão fictícia", procedimento="Procedimento fictício", dias_afastamento=1)
@@ -394,7 +406,7 @@ def test_score_com_valores_conhecidos(extracao):
 def test_consistencia_desconta_violacoes_com_piso_zero(extracao, quantidade, consistencia):
     extracao["evidencias"]["campos_ilegiveis"] = [
         "dados_extraidos.paciente.idade", "evidencias.procedimento", "evidencias.conclusao",
-        "dados_extraidos.medico_prescritor.nome", "dados_extraidos.cid_sugerido",
+        "dados_extraidos.medico_responsavel.nome", "dados_extraidos.cid_sugerido",
     ][:quantidade]
     resultado = executar(extracao)
     assert len(resultado["ocorrencias"]) == quantidade
@@ -418,7 +430,7 @@ def test_limiar_sem_arredondar_o_score(extracao, legibilidade, score, atinge):
 
 
 def test_score_alto_preserva_impedimento_de_validacao_grave(extracao):
-    extracao["dados_extraidos"]["medico_prescritor"]["crm"] = None
+    extracao["dados_extraidos"]["medico_responsavel"]["crm"] = None
     resultado = validar({"extracao": {"dados_estruturados": extracao}})
     assert resultado["score_confianca"] == 0.852
     assert resultado["validacao"]["atinge_limiar"] is True

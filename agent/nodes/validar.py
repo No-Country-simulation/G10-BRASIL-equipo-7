@@ -98,19 +98,18 @@ def _validar_leves(
                     valor_original=cid,
                 ))
 
-    for papel in ("medico_solicitante", "medico_prescritor"):
-        medico = getattr(dados, papel)
-        if medico and medico.crm:
-            if medico.crm.isdigit():
-                ocorrencias.append(OcorrenciaValidacao(
-                    codigo="crm_uf_ausente", campo=f"dados_extraidos.{papel}.crm", gravidade="leve",
-                    motivo="Número de CRM presente, mas UF ausente ou ilegível.",
-                ))
-            if medico.nome is None:
-                ocorrencias.append(OcorrenciaValidacao(
-                    codigo="nome_medico_ausente", campo=f"dados_extraidos.{papel}.nome", gravidade="leve",
-                    motivo="Nome do médico ausente, com CRM presente.",
-                ))
+    medico = dados.medico_responsavel
+    if medico and medico.crm:
+        if medico.crm.isdigit():
+            ocorrencias.append(OcorrenciaValidacao(
+                codigo="crm_uf_ausente", campo="dados_extraidos.medico_responsavel.crm", gravidade="leve",
+                motivo="Número de CRM presente, mas UF ausente ou ilegível.",
+            ))
+        if medico.nome is None:
+            ocorrencias.append(OcorrenciaValidacao(
+                codigo="nome_medico_ausente", campo="dados_extraidos.medico_responsavel.nome", gravidade="leve",
+                motivo="Nome do médico ausente, com CRM presente.",
+            ))
 
     if any(campo.startswith("dados_extraidos.medicamentos.") for campo in campos_criticos):
         for indice, medicamento in enumerate(dados.medicamentos or []):
@@ -188,19 +187,18 @@ def validar(state: dict) -> dict:
     ilegiveis = extracao.evidencias.campos_ilegiveis
     ocorrencias = []
 
-    for papel in ("medico_solicitante", "medico_prescritor"):
-        medico = getattr(dados, papel)
-        campo = f"dados_extraidos.{papel}.crm"
-        crm = medico.crm if medico else None
-        ilegivel = _ilegivel(campo, ilegiveis)
-        normalizado = _normalizar_crm(crm) if crm and not ilegivel else None
-        if (campo in esperados or crm is not None) and normalizado is None:
-            ocorrencias.append(OcorrenciaValidacao(
-                codigo="crm_invalido", campo=campo, gravidade="grave",
-                motivo="CRM obrigatório ausente, ilegível ou fora do padrão numérico esperado.",
-            ))
-        if medico:
-            medico.crm = normalizado
+    medico = dados.medico_responsavel
+    campo = "dados_extraidos.medico_responsavel.crm"
+    crm = medico.crm if medico else None
+    ilegivel = _ilegivel(campo, ilegiveis)
+    normalizado = _normalizar_crm(crm) if crm and not ilegivel else None
+    if (campo in esperados or crm is not None) and normalizado is None:
+        ocorrencias.append(OcorrenciaValidacao(
+            codigo="crm_invalido", campo=campo, gravidade="grave",
+            motivo="CRM obrigatório ausente, ilegível ou fora do padrão numérico esperado.",
+        ))
+    if medico:
+        medico.crm = normalizado
 
     paciente = dados.paciente
     if paciente and paciente.idade is not None and not 0 <= paciente.idade <= 120:
@@ -260,6 +258,8 @@ def validar(state: dict) -> dict:
         extracao, fonte, [campo for campo, _ in campos], config.referencias_cid, ocorrencias,
     )
     impedimentos = {item.codigo for item in ocorrencias if item.gravidade == "grave"}
+    if _ilegivel("dados_extraidos.medico_responsavel", ilegiveis):
+        impedimentos.add("medico_responsavel_indefinido")
     if not esperados or _texto_normalizado(extracao.classificacao.tipo_documento) == "indefinido":
         impedimentos.add("categoria_indefinida")
     if extracao.classificacao.score_confianca_classificacao < config.confianca_minima_classificacao:
