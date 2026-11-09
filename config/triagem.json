@@ -1,4 +1,20 @@
 {
+  "roteamento": {
+    "departamentos_por_categoria": {
+      "Receituário Médico": "Farmacia_Hospitalar",
+      "Laudo de Exame de Imagem": "Prontuario_Eletronico",
+      "Laudo de Exame Laboratorial": "Prontuario_Eletronico",
+      "Guia de Solicitação de Procedimento": "Auditoria_Autorizacoes",
+      "Relatório de Alta/Internação": "Prontuario_Eletronico",
+      "Atestado Médico": "Prontuario_Eletronico"
+    },
+    "destino_urgencia": "Fila_Emergencia_Medica",
+    "destino_ambiguidade": "Fila_Revisao_Humana",
+    "expressoes_urgencia": ["urgente", "emergência", "correlação clínica urgente"],
+    "achados_criticos": ["TEP agudo", "tromboembolismo pulmonar agudo", "hemorragia", "AVC", "pneumotórax"],
+    "origens_relevantes": ["Pronto_Socorro", "UTI"],
+    "grupos_alta_vigilancia": ["anticoagulante", "insulina", "opioide", "quimioterapico"]
+  },
   "pesos": {
     "C": 0.30,
     "P": 0.30,

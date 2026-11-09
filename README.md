@@ -82,13 +82,10 @@ flowchart TD
 | **Urgência** | Achado crítico no conteúdo | `processados/urgencia` | Dispara o alerta |
 | **Ambiguidade** | Dados ilegíveis, ausentes ou confiança baixa | `auditoria-humana/ambiguidade` | Revisão humana |
 
-## 4. Regras de triagem (a definir)
+## 4. Regras de triagem
 
-Dependem da issue #5. Pontos em aberto:
+O grafo avalia **urgência → ambiguidade → rotina**, com limiar de confiança de **0,85**. Urgência com score baixo ou qualquer trava de revisão mantém a rota e exige auditoria. Alta vigilância exige revisão humana. Departamentos, evidências e gatilhos são definidos nas [regras de triagem](docs/MediFlow%20%E2%80%94%20Regras%20de%20Triagem.md), que incluem configuração e comandos para testar o grafo.
 
-- Limiar de score de confiança que separa rotina de ambiguidade.
-- Critérios que caracterizam um achado crítico.
-- **Documento urgente e de baixa confiança:** vai para auditoria humana, dispara o alerta, ou os dois?
 
 ## 5. Decisões
 
@@ -105,7 +102,7 @@ Registro das decisões de arquitetura. Data: 19/10/2026 (fechamento da arquitetu
 
 **Em aberto:**
 
-- Documento urgente e de baixa confiança: vai para auditoria humana, dispara o alerta, ou os dois? (#5)
+- Calibração de pesos, limiares e referências clínicas de CID.
 - O n8n consegue ler os buckets da OCI? Risco da Fase 2, em validação (#12).
 
 O histórico completo fica em [`docs/decisoes.md`](docs/decisoes.md).
@@ -183,11 +180,11 @@ Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Enviados 
 - Entrada: receituário digitalizado com baixa qualidade: nome, CRM e dose ilegíveis ("5 ou 50 mg"), diagnóstico não informado.
 - Resultado esperado: confiança baixa. Rota **ambiguidade**, gravado em `auditoria-humana/ambiguidade` para revisão humana, sem alerta.
 
-O mock usa scores fixos de 0,96 (rotina), 0,93 (urgência) e 0,41 (ambiguidade). São exemplos para integração; o cálculo real depende da implementação das regras de triagem.
+O mock usa scores fixos de 0,96 (rotina), 0,93 (urgência) e 0,41 (ambiguidade). São exemplos para integração; o grafo calcula o score no nó `validar` e decide a rota pelas regras configuradas.
 | Arquivo | Rota | Destino principal | Bucket | Revisão humana | Alerta |
 |---|---|---|---|---|---|
 | `doc_teste_001_rotina.json` | `/rotina` | `Farmacia_Hospitalar` | `processados` | não | não |
-| `doc_teste_002_urgencia.json` | `/urgencia` | `Fila_Emergencia_Medica` | `processados` | não (se score ≥ 0,85) | sim |
+| `doc_teste_002_urgencia.json` | `/urgencia` | `Fila_Emergencia_Medica` | `processados` | não (score ≥ 0,85 e nenhuma trava) | simulado |
 | `doc_teste_003_ambiguidade.json` | `/ambiguidade` | `Fila_Revisao_Humana` | `auditoria-humana` | sim | não |
 
 ## 8. Limitações e próximos passos

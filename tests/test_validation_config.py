@@ -28,7 +28,9 @@ def test_extracao_preserva_evidencias_para_validacoes_posteriores(extracao):
         "campos_ilegiveis": ["dados_extraidos.medico_responsavel.crm"],
     }
     resultado = ExtracaoDocumento.model_validate({**extracao, "evidencias": evidencias})
-    assert resultado.evidencias.model_dump() == evidencias
+    assert resultado.evidencias.model_dump() == {
+        **evidencias, "sinais_urgencia": [], "grupos_medicamentos": [],
+    }
     assert ExtracaoDocumento.model_validate_json(resultado.model_dump_json()) == resultado
 
 
