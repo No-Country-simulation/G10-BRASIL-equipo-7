@@ -13,6 +13,7 @@ class TriagemState(TypedDict, total=False):
     extracao: dict
     validacao: dict
     score_confianca: float
+    decisao_roteamento: dict
     classificacao: str
     destino_principal: str
     justificativa: str

@@ -25,7 +25,7 @@ API_URL=http://localhost:8000
 
 | Variável | Função |
 | --- | --- |
-| `AGENT_MODE` | `mock` seleciona a simulação; `real` chama o grafo LangGraph, ainda pendente de implementação. |
+| `AGENT_MODE` | `mock` seleciona a simulação; `real` chama o grafo LangGraph. A adaptação do retorno do grafo ao contrato HTTP ainda está pendente. |
 | `STORAGE_LOCAL_DIR` | Diretório dos buckets simulados. O caminho relativo parte do diretório onde o servidor é iniciado. |
 | `AGENT_TIMEOUT_SECONDS` | Tempo máximo por tentativa do agente. O padrão é 30 segundos, com uma repetição em falha técnica. |
 | `API_URL` | Endereço para o cliente que chama a API; não configura a porta do servidor. |
@@ -170,7 +170,7 @@ O original precisa ser salvo e o JSON precisa ser interpretável antes da seleç
 
 O mock não analisa gravidade, não calcula confiança a partir do documento e não chama o Gemini. Na resposta simulada de urgência, `alerta_enviado=true` é apenas parte do exemplo: nenhum alerta real é enviado. A integração de alertas continua na issue #13.
 
-Para usar o agente real no futuro, configure `AGENT_MODE=real` e reinicie o servidor. Esse modo já chama `agent.graph.triar` e exige o mesmo contrato de resposta, mas o grafo e seus nós ainda precisam ser concluídos. Ativá-lo agora pode resultar em ambiguidade por falha técnica. O armazenamento continua local; trocar o agente não ativa OCI.
+`AGENT_MODE=real` chama `agent.graph.triar`, cujos nós de extração, validação e roteamento estão implementados. O adaptador ainda espera o contrato HTTP antigo; sua migração fica em outra entrega. Ativar esse modo agora pode resultar em ambiguidade por falha técnica de contrato. Para conferir a decisão atual, execute o grafo diretamente, conforme as [regras de triagem](MediFlow%20%E2%80%94%20Regras%20de%20Triagem.md). O armazenamento da API continua local; trocar o agente não ativa OCI.
 
 ## 5. Onde conferir os arquivos
 

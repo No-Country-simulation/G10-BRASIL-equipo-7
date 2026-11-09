@@ -46,6 +46,19 @@ class DadosExtraidos(ModeloContrato):
     cid_sugerido: TextoNaoVazio | None = None
 
 
+class SinalUrgencia(ModeloContrato):
+    tipo: Literal["achado_critico", "indicacao_urgencia", "gravidade"]
+    termo: TextoNaoVazio
+    trecho: TextoNaoVazio
+    contexto: Literal["atual", "suspeita", "negado", "historico"]
+
+
+class GrupoMedicamento(ModeloContrato):
+    indice_medicamento: Annotated[int, Field(ge=0, description="Posição na lista de medicamentos, começando em 0.")]
+    grupo: TextoNaoVazio = Field(description="Grupo identificado, outro ou indefinido, conforme a evidência.")
+    trecho: TextoNaoVazio
+
+
 class EvidenciasExtracao(ModeloContrato):
     """Dados internos, preservados para as verificações clínicas do nó validar."""
 
@@ -58,6 +71,8 @@ class EvidenciasExtracao(ModeloContrato):
     dias_afastamento: int | None = None
     nomes_pacientes: list[TextoNaoVazio] = Field(default_factory=list)
     campos_ilegiveis: list[TextoNaoVazio] = Field(default_factory=list)
+    sinais_urgencia: list[SinalUrgencia] = Field(default_factory=list)
+    grupos_medicamentos: list[GrupoMedicamento] = Field(default_factory=list)
 
 
 class PacienteExtraido(Paciente):
@@ -86,6 +101,14 @@ class ExtracaoDocumento(ModeloContrato):
     dados_extraidos: DadosExtraidosBrutos
     legibilidade: ScoreConfianca
     evidencias: EvidenciasExtracao = Field(default_factory=EvidenciasExtracao)
+
+    @model_validator(mode="after")
+    def validar_indices_medicamentos(self) -> "ExtracaoDocumento":
+        quantidade = len(self.dados_extraidos.medicamentos or [])
+        for classificacao in self.evidencias.grupos_medicamentos:
+            if classificacao.indice_medicamento >= quantidade:
+                raise ValueError("Classificação de grupo aponta para um medicamento inexistente")
+        return self
 
     @model_validator(mode="before")
     @classmethod
