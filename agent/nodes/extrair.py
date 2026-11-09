@@ -1,8 +1,10 @@
 """Nó Extrair (#8): envia o documento ao Gemini e devolve campos estruturados."""
 
+import json
 from pathlib import Path
 from google.genai import types
 
+from agent.config import carregar_configuracao
 from agent.schemas import ExtracaoDocumento
 
 MIMES_NATIVOS = {
@@ -39,6 +41,23 @@ Em evidencias, transcreva as datas do documento, internação e alta como aparec
 o procedimento, a conclusão, os dias de afastamento e os nomes de pacientes encontrados.
 Liste os caminhos dos campos ilegíveis relativos ao esquema, por exemplo
 dados_extraidos.paciente.nome ou dados_extraidos.medicamentos.0.dosagem.
+
+Preencha evidencias.sinais_urgencia com cada achado crítico, indicação explícita de urgência
+ou sinal de gravidade observado. Use tipo achado_critico, indicacao_urgencia ou gravidade.
+Em termo, use o termo configurado quando houver correspondência. Em trecho, copie a passagem
+do documento que sustenta o sinal, incluindo a negação ou indicação temporal quando presentes.
+Classifique o contexto como atual para achado afirmado no presente, suspeita para hipótese
+atual, negado para condição negada/descartada e historico para antecedente sem indicação atual.
+Preserve as menções negadas e históricas com seus contextos para a decisão posterior.
+Um sinal de gravidade deve ter evidência clínica no documento. O canal de origem é avaliado
+pela etapa de roteamento. Quando não houver sinais, use sinais_urgencia como lista vazia.
+
+Preencha evidencias.grupos_medicamentos para cada item de dados_extraidos.medicamentos.
+Use indice_medicamento a partir de zero, mantendo a ordem da lista, e copie em trecho a passagem
+que identifica a prescrição desse item. Em grupo, use exatamente um dos grupos configurados
+quando a associação for segura, outro para medicamento reconhecido fora desses grupos ou
+indefinido quando a identificação/classificação for incerta. Para medicamentos ausentes ou
+lista vazia, use grupos_medicamentos como lista vazia.
 """
 
 
@@ -50,7 +69,10 @@ def extrair(state: dict) -> dict:
     tipo_mime = documento.get("tipo_arquivo", "")
     extensao = Path(nome).suffix.lower()
 
-    contents = [PROMPT_SISTEMA]
+    referencias = carregar_configuracao().roteamento.model_dump(include={
+        "achados_criticos", "expressoes_urgencia", "grupos_alta_vigilancia",
+    })
+    contents = [PROMPT_SISTEMA + "\nReferências configuradas:\n" + json.dumps(referencias, ensure_ascii=False)]
 
     # 1. Se vier como bytes (PDF ou Imagens PNG/JPG)
     if conteudo_bytes:
