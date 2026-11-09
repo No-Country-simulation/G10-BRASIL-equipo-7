@@ -8,6 +8,18 @@ from pydantic import Field, model_validator
 
 from agent.schemas import ModeloContrato, ScoreConfianca, TextoNaoVazio
 
+ListaTermos = Annotated[list[TextoNaoVazio], Field(min_length=1)]
+
+
+class ConfiguracaoRoteamento(ModeloContrato):
+    departamentos_por_categoria: Annotated[dict[TextoNaoVazio, TextoNaoVazio], Field(min_length=1)]
+    destino_urgencia: TextoNaoVazio
+    destino_ambiguidade: TextoNaoVazio
+    expressoes_urgencia: ListaTermos
+    achados_criticos: ListaTermos
+    origens_relevantes: ListaTermos
+    grupos_alta_vigilancia: ListaTermos
+
 
 class PesosConfianca(ModeloContrato):
     C: ScoreConfianca
@@ -23,6 +35,7 @@ class PesosConfianca(ModeloContrato):
 
 
 class ConfiguracaoTriagem(ModeloContrato):
+    roteamento: ConfiguracaoRoteamento
     pesos: PesosConfianca
     limiar_confianca: ScoreConfianca
     penalidade_consistencia: ScoreConfianca
@@ -35,6 +48,13 @@ class ConfiguracaoTriagem(ModeloContrato):
     referencias_cid: dict[
         TextoNaoVazio, Annotated[list[TextoNaoVazio], Field(min_length=1)]
     ] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validar_departamentos(self) -> "ConfiguracaoTriagem":
+        faltantes = self.campos_esperados.keys() - self.roteamento.departamentos_por_categoria.keys()
+        if faltantes:
+            raise ValueError("Categorias sem departamento de destino: " + ", ".join(sorted(faltantes)))
+        return self
 
 
 def carregar_configuracao(caminho: str | Path | None = None) -> ConfiguracaoTriagem:
