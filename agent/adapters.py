@@ -109,9 +109,8 @@ class AgenteReal:
         from agent.graph import triar
 
         documento_id = identificar_documento(documento)
-        resultado = ResultadoTriagem.model_validate(
-            triar({**documento, "documento_id": documento_id})
-        )
+        estado = triar({**documento, "documento_id": documento_id})
+        resultado = estado_para_resultado(estado, documento_id)
         if resultado.documento_id != documento_id:
             raise ValueError("O agente retornou um documento_id diferente do recebido")
         return resultado
@@ -125,3 +124,20 @@ def obter_agente() -> Agente:
     if modo == "real":
         return AgenteReal()
     raise ValueError("AGENT_MODE deve ser mock ou real")
+
+
+def estado_para_resultado(estado: dict, documento_id: str) -> ResultadoTriagem:
+    """Converte o estado do grafo (contrato novo) para o ResultadoTriagem (contrato antigo)."""
+    if "decisao_roteamento" not in estado:
+        return ResultadoTriagem.model_validate(estado)
+    decisao = estado["decisao_roteamento"]
+    validacao = estado.get("validacao") or {}
+    return ResultadoTriagem(
+        documento_id=documento_id,
+        classificacao=decisao["rota"],
+        destino_principal=decisao["destino_principal"],
+        score_confianca=estado["score_confianca"],
+        justificativa=decisao["justificativa_roteamento"],
+        alerta_enviado=False,  # a notificação é gerada, mas o envio é a issue #13
+        dados_extraidos=(validacao.get("dados_validados") or {}).get("dados_extraidos") or {},
+    )
