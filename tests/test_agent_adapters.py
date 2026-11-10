@@ -1,4 +1,3 @@
-import ast
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -16,17 +15,55 @@ from agent.schemas import ResultadoTriagem
 RAIZ = Path(__file__).resolve().parents[1]
 
 
+# Respostas esperadas do mock da API. Antes eram lidas de `MOCKS` em app/app.py; a tela
+# (#26) deixou de ter mocks próprios, então os valores ficam fixos aqui como referência.
+EXEMPLOS_ESPERADOS = {
+    "rotina": {
+        "documento_id": "DOC-TESTE-001",
+        "classificacao": "rotina",
+        "destino_principal": "processados/rotina",
+        "score_confianca": 0.96,
+        "justificativa": "Documento completo e sem sinais de gravidade.",
+        "alerta_enviado": False,
+        "dados_extraidos": {
+            "paciente": "Maria Souza Lima, 45 anos",
+            "medico": "Dr. Paulo Andrade, CRM-SP 123456",
+            "conteudo": "Losartana 50 mg, 1 comprimido ao dia",
+        },
+    },
+    "urgencia": {
+        "documento_id": "DOC-TESTE-002",
+        "classificacao": "urgencia",
+        "destino_principal": "processados/urgencia",
+        "score_confianca": 0.93,
+        "justificativa": "Achado crítico: avaliação neurocirúrgica imediata.",
+        "alerta_enviado": True,
+        "dados_extraidos": {
+            "paciente": "Carlos Pereira Dias, 61 anos",
+            "medico": "Dra. Ana Ribeiro, CRM-SP 654321",
+            "conteudo": "Tomografia de crânio: hemorragia subaracnoidea aguda",
+        },
+    },
+    "ambiguidade": {
+        "documento_id": "DOC-TESTE-003",
+        "classificacao": "ambiguidade",
+        "destino_principal": "auditoria-humana/ambiguidade",
+        "score_confianca": 0.41,
+        "justificativa": "Nome, CRM e dose ilegíveis ou ausentes.",
+        "alerta_enviado": False,
+        "dados_extraidos": {
+            "paciente": "M[ilegível] S[ilegível], idade não informada",
+            "medico": "CRM [ilegível]",
+            "conteudo": "Prescrição ilegível: 5 ou 50 mg, 1 cp 12/12h",
+        },
+    },
+}
+
+
 @pytest.fixture
 def mocks_front():
-    # Lê os exemplos do front sem executar a aplicação ou carregar Streamlit.
-    arvore = ast.parse((RAIZ / "app/app.py").read_text(encoding="utf-8"))
-    for comando in arvore.body:
-        if isinstance(comando, ast.Assign) and any(
-            isinstance(alvo, ast.Name) and alvo.id == "MOCKS"
-            for alvo in comando.targets
-        ):
-            return ast.literal_eval(comando.value)
-    pytest.fail("Exemplos MOCKS da interface não encontrados")
+    # Cópia nova por teste, para que alterações em um teste não vazem para outro.
+    return deepcopy(EXEMPLOS_ESPERADOS)
 
 
 @pytest.mark.parametrize("numero,caso", [(1, "rotina"), (2, "urgencia"), (3, "ambiguidade")])
