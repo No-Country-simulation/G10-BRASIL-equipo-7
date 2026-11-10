@@ -256,7 +256,7 @@ def test_falha_ao_salvar_original_tenta_preservar_na_ambiguidade(ambiente, monke
     originais = list(pasta.glob("*.pdf"))
     assert len(originais) == 1
     assert originais[0].read_bytes() == b"%PDF-1.4\n%%EOF"
-    assert json.loads((pasta / f"{originais[0].name}.triagem.json").read_text()) == resultado
+    assert json.loads((pasta / f"{originais[0].name}.triagem.json").read_text(encoding="utf-8")) == resultado
 
 
 def test_falha_ao_salvar_resultado_vai_para_ambiguidade(ambiente, monkeypatch):
@@ -301,7 +301,7 @@ def test_falha_na_copia_ambigua_ainda_tenta_gravar_json(ambiente, monkeypatch, c
     resultado = conferir_falha(enviar(client, caso_mock="ambiguidade"))
     pasta = armazenamento.diretorio / "auditoria-humana/ambiguidade"
     assert len(list(pasta.glob("*.triagem.json"))) == 1
-    assert json.loads(next(pasta.glob("*.triagem.json")).read_text()) == resultado
+    assert json.loads(next(pasta.glob("*.triagem.json")).read_text(encoding="utf-8")) == resultado
     assert "Falha ao preservar original" in caplog.text
 
 
