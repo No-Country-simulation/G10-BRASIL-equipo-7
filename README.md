@@ -92,23 +92,22 @@ Dependem da issue #5. Pontos em aberto:
 
 ## 5. Decisões
 
-Registro das decisões de arquitetura. Data: 19/10/2026 (fechamento da arquitetura).
+Registro das decisões de arquitetura. Data: 19/10/2026 (fechamento da arquitetura), com atualização da decisão de infraestrutura em 11/11/2026.
 
 | Tema | Decisão | Alternativa / observação |
 |---|---|---|
 | Núcleo do agente | Python com LangGraph (Extrair, Validar, Decidir Rota) | n8n fica só na Fase 2 (opcional) e nos alertas |
-| Buckets | 3 buckets: `recebidos`, `processados` (pastas `rotina` e `urgencia`) e `auditoria-humana` (pasta `ambiguidade`) | Alternativa: 1 bucket só, separado por prefixos. Escolhemos 3 para separar o original, o resultado e a fila de revisão humana |
+| Buckets | 3 buckets: `recebidos`, `processados` (pastas `rotina` e `urgencia`) e `auditoria-humana` (pasta `ambiguidade`) | Buckets oficiais provisionados e ativos na OCI, região `sa-saopaulo-1`. Integração via API compatível com S3 e Force Path Style validada |
 | Gatilho de entrada | A API chama o agente diretamente | Alternativa descartada: disparar o agente por upload no bucket |
-| Docker e VM | Ficam para uma sprint posterior (diferencial, fora do MVP) | O MVP roda local |
+| Docker e VM | Backend executado localmente durante o desenvolvimento; após a conclusão, será containerizado com Docker e implantado em uma VM da OCI | O desenvolvimento não dependerá da hospedagem na nuvem |
 | Chaves de API | Pessoais, por variável de ambiente, nunca no código ou no chat | #3 |
 | Alerta de urgência | A falha do alerta não derruba a triagem | #13 |
+| Integração n8n e OCI | Leitura dos buckets OCI pelo n8n validada com sucesso | Conexão via API compatível com S3, utilizando Force Path Style. Testes de listagem e leitura de documentos realizados na Fase 2 |
 
 **Em aberto:**
-
 - Documento urgente e de baixa confiança: vai para auditoria humana, dispara o alerta, ou os dois? (#5)
-- O n8n consegue ler os buckets da OCI? Risco da Fase 2, em validação (#12).
 
-O histórico completo fica em [`docs/decisoes.md`](docs/decisoes.md).
+O histórico completo fica em [`docs/decisoes.md`](https://github.com/No-Country-simulation/G10-BRASIL-equipo-7/blob/main/docs/decisoes.md).
 
 ## 6. Estrutura e como rodar
 
