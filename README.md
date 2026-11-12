@@ -6,7 +6,7 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
 
-A API já funciona localmente com agente simulado e armazenamento em disco. Veja o [guia da API](docs/api.md) para iniciar o servidor, enviar seus próprios arquivos e conferir os resultados. A extração real com Gemini, o armazenamento OCI e o envio de alertas ainda dependem das próximas integrações.
+A API já funciona localmente com agente simulado e armazenamento em disco; com `STORAGE_MODE=oci`, grava nos buckets da OCI. Veja o [guia da API](docs/api.md) para iniciar o servidor, enviar seus próprios arquivos e conferir os resultados. A extração real com Gemini e o envio de alertas ainda dependem das próximas integrações.
 
 ## 1. Problema e objetivo
 
@@ -117,7 +117,7 @@ mediflow/
 │   ├── nodes/      # extrair.py, validar.py, decidir_rota.py
 │   ├── schemas.py  # contratos Pydantic (#1)
 │   └── rules.py    # regras de triagem (#5)
-├── storage/        # armazenamento local e integração futura com OCI
+├── storage/        # armazenamento local e nos buckets da OCI (#22)
 ├── alerts/         # alerta de urgência (#13)
 ├── n8n/            # workflows do n8n
 ├── data/sinteticos/# documentos fictícios de teste (#4)
@@ -137,11 +137,12 @@ Se ainda não existir um `.env`, copie `.env.example` para `.env`. Se já existi
 
 ```dotenv
 AGENT_MODE=mock
+STORAGE_MODE=local
 STORAGE_LOCAL_DIR=.local/storage
 AGENT_TIMEOUT_SECONDS=30
 ```
 
-A API lê o `.env` da raiz; variáveis já exportadas no terminal têm prioridade. Inicie o servidor:
+Para gravar nos buckets da OCI, use `STORAGE_MODE=oci` e preencha as variáveis `OCI_*` conforme o [guia da API](docs/api.md#gravar-nos-buckets-da-oci). A API lê o `.env` da raiz; variáveis já exportadas no terminal têm prioridade. Inicie o servidor:
 
 ```bash
 python -m uvicorn api.main:app --reload

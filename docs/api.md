@@ -18,6 +18,7 @@ Se ainda não houver `.env`, copie `.env.example` para `.env` pelo editor. Se j�
 
 ```dotenv
 AGENT_MODE=mock
+STORAGE_MODE=local
 STORAGE_LOCAL_DIR=.local/storage
 AGENT_TIMEOUT_SECONDS=30
 API_URL=http://localhost:8000
@@ -26,11 +27,12 @@ API_URL=http://localhost:8000
 | Variável | Função |
 | --- | --- |
 | `AGENT_MODE` | `mock` seleciona a simulação; `real` chama o grafo LangGraph. A adaptação do retorno do grafo ao contrato HTTP ainda está pendente. |
+| `STORAGE_MODE` | `local` (padrão) grava em disco; `oci` grava nos buckets do OCI Object Storage, conforme a seção 5. |
 | `STORAGE_LOCAL_DIR` | Diretório dos buckets simulados. O caminho relativo parte do diretório onde o servidor é iniciado. |
 | `AGENT_TIMEOUT_SECONDS` | Tempo máximo por tentativa do agente. O padrão é 30 segundos, com uma repetição em falha técnica. |
 | `API_URL` | Endereço para o cliente que chama a API; não configura a porta do servidor. |
 
-A API carrega o `.env` da raiz sem substituir variáveis já exportadas no terminal. Reinicie o servidor após alterar essas configurações. As variáveis OCI e `ALERTA_WEBHOOK_URL` ainda não ativam essas integrações na API atual.
+A API carrega o `.env` da raiz sem substituir variáveis já exportadas no terminal. Reinicie o servidor após alterar essas configurações. As variáveis `OCI_*` só são usadas com `STORAGE_MODE=oci`. `ALERTA_WEBHOOK_URL` ainda não ativa o envio de alertas na API atual.
 
 Inicie e mantenha este terminal aberto:
 
@@ -170,7 +172,7 @@ O original precisa ser salvo e o JSON precisa ser interpretável antes da seleç
 
 O mock não analisa gravidade, não calcula confiança a partir do documento e não chama o Gemini. Na resposta simulada de urgência, `alerta_enviado=true` é apenas parte do exemplo: nenhum alerta real é enviado. A integração de alertas continua na issue #13.
 
-`AGENT_MODE=real` chama `agent.graph.triar`, cujos nós de extração, validação e roteamento estão implementados. O adaptador ainda espera o contrato HTTP antigo; sua migração fica em outra entrega. Ativar esse modo agora pode resultar em ambiguidade por falha técnica de contrato. Para conferir a decisão atual, execute o grafo diretamente, conforme as [regras de triagem](MediFlow%20%E2%80%94%20Regras%20de%20Triagem.md). O armazenamento da API continua local; trocar o agente não ativa OCI.
+`AGENT_MODE=real` chama `agent.graph.triar`, cujos nós de extração, validação e roteamento estão implementados. O adaptador ainda espera o contrato HTTP antigo; sua migração fica em outra entrega. Ativar esse modo agora pode resultar em ambiguidade por falha técnica de contrato. Para conferir a decisão atual, execute o grafo diretamente, conforme as [regras de triagem](MediFlow%20%E2%80%94%20Regras%20de%20Triagem.md). O armazenamento é escolhido à parte por `STORAGE_MODE`; trocar o agente não ativa OCI.
 
 ## 5. Onde conferir os arquivos
 
@@ -195,6 +197,28 @@ Cada upload recebe uma chave aleatória, mantendo a extensão do arquivo, por ex
 
 O arquivo em `recebidos` mantém os bytes originais. O arquivo `.triagem.json` contém a mesma resposta devolvida pela API. Na ambiguidade, também se tenta preservar uma cópia do original junto do resultado. Se o armazenamento falhar, a API registra o problema e responde sem garantir que os arquivos tenham sido gravados. `.local/storage` está ignorado no Git.
 
+### Gravar nos buckets da OCI
+
+Com `STORAGE_MODE=oci`, os mesmos arquivos vão para os buckets oficiais (região `sa-saopaulo-1`), pela API compatível com S3 e Force Path Style, a mesma integração validada no n8n (#12):
+
+| Bucket | Objetos |
+| --- | --- |
+| `mediflow-recebidos` | `<chave>.pdf` |
+| `mediflow-processados` | `rotina/<chave>.pdf.triagem.json` e `urgencia/<chave>.pdf.triagem.json` |
+| `mediflow-auditoria-humana` | `ambiguidade/<chave>.pdf` e `ambiguidade/<chave>.pdf.triagem.json` |
+
+Preencha no `.env`, sem commitar os valores:
+
+```dotenv
+STORAGE_MODE=oci
+OCI_NAMESPACE=<namespace do tenancy>
+OCI_REGION=sa-saopaulo-1
+OCI_S3_ACCESS_KEY=<Access Key da Customer Secret Key>
+OCI_S3_SECRET_KEY=<Secret Key da Customer Secret Key>
+```
+
+O endpoint é montado como `https://<namespace>.compat.objectstorage.<região>.oraclecloud.com`; para usar outro, informe `OCI_S3_ENDPOINT`. Os nomes dos buckets podem ser trocados por `OCI_BUCKET_RECEBIDOS`, `OCI_BUCKET_PROCESSADOS` e `OCI_BUCKET_AUDITORIA`. Se faltar alguma variável, o upload responde `500` e o terminal do servidor informa qual. Reinicie o servidor e envie os três documentos de `data/sinteticos/` (seção 3): cada original deve aparecer em `mediflow-recebidos` e cada triagem no bucket e prefixo da sua rota. Se a OCI recusar uma gravação, a resposta é a ambiguidade por falha de armazenamento e o terminal registra o bucket, o objeto e o código de erro (`AccessDenied`, `NoSuchBucket`, `SignatureDoesNotMatch`).
+
 ## 6. Erros e tempo de resposta
 
 | HTTP | Significado |
@@ -203,6 +227,7 @@ O arquivo em `recebidos` mantém os bytes originais. O arquivo `.triagem.json` c
 | `400` | Arquivo vazio. |
 | `415` | Extensão não aceita ou MIME incompatível. |
 | `422` | Falta o campo `arquivo`, a requisição está fora do formato esperado ou `caso_mock` é inválido. |
+| `500` | `STORAGE_MODE` inválido ou configuração OCI incompleta. O terminal do servidor informa a variável. |
 
 Os erros de validação HTTP retornam `detail`; eles não são JSONs de triagem. JSON malformado, exceção do agente, saída inválida e falha de armazenamento retornam o contrato de triagem com ambiguidade, confiança zero, alerta falso e dados extraídos vazios. Nos erros de upload acima, o processamento não inicia e nenhum original é salvo.
 
@@ -257,4 +282,4 @@ Para executar apenas os testes do endpoint:
 python -m pytest tests/test_api.py -q
 ```
 
-Os testes cobrem as três rotas, formatos aceitos, preservação dos arquivos, erros de entrada, repetição, timeout e falhas de armazenamento. Usam diretórios temporários e agentes de teste, sem depender de OCI, Gemini ou de um servidor iniciado manualmente.
+Os testes cobrem as três rotas, formatos aceitos, preservação dos arquivos, erros de entrada, repetição, timeout e falhas de armazenamento. Usam diretórios temporários e agentes de teste, sem depender de OCI, Gemini ou de um servidor iniciado manualmente. Os testes do armazenamento OCI usam um cliente simulado e não acessam a rede.
