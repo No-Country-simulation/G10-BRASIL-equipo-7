@@ -1,0 +1,19 @@
+﻿LABORATÓRIO CENTRAL VIDAMED - Setor de Análises Clínicas
+Laudo de Exame Laboratorial - Perfil Lipídico
+
+Paciente,Roberto Alencar Dias
+Idade,45 anos
+Médico solicitante,Dr. Ivan Moreira Sampaio
+CRM,CRM-DF 15390
+Diagnóstico,Hipercolesterolemia pura
+CID-10,E78.0
+Prescrição,Sinvastatina 20 mg - 1 comprimido à noite; Dieta hipogordurosa e atividade física
+Data da coleta,02/11/2026
+
+Exame,Resultado,Unidade,Referência
+Colesterol total,238,mg/dL,< 190
+LDL-colesterol,158,mg/dL,< 130
+HDL-colesterol,41,mg/dL,> 40
+Triglicerídeos,195,mg/dL,< 150
+
+Documento sintético para testes - dados fictícios

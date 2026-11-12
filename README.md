@@ -6,7 +6,7 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
 
-A API já funciona localmente com agente simulado e armazenamento em disco. Veja o [guia da API](docs/api.md) para iniciar o servidor, enviar seus próprios arquivos e conferir os resultados. A extração real com Gemini, o armazenamento OCI e o envio de alertas ainda dependem das próximas integrações.
+A API já funciona localmente com agente simulado e armazenamento em disco; com `STORAGE_MODE=oci`, grava nos buckets da OCI. Veja o [guia da API](docs/api.md) para iniciar o servidor, enviar seus próprios arquivos e conferir os resultados. A extração real com Gemini e o envio de alertas ainda dependem das próximas integrações.
 
 ## 1. Problema e objetivo
 
@@ -82,13 +82,10 @@ flowchart TD
 | **Urgência** | Achado crítico no conteúdo | `processados/urgencia` | Dispara o alerta |
 | **Ambiguidade** | Dados ilegíveis, ausentes ou confiança baixa | `auditoria-humana/ambiguidade` | Revisão humana |
 
-## 4. Regras de triagem (a definir)
+## 4. Regras de triagem
 
-Dependem da issue #5. Pontos em aberto:
+O grafo avalia **urgência → ambiguidade → rotina**, com limiar de confiança de **0,85**. Urgência com score baixo ou qualquer trava de revisão mantém a rota e exige auditoria. Alta vigilância exige revisão humana. Departamentos, evidências e gatilhos são definidos nas [regras de triagem](docs/MediFlow%20%E2%80%94%20Regras%20de%20Triagem.md), que incluem configuração e comandos para testar o grafo.
 
-- Limiar de score de confiança que separa rotina de ambiguidade.
-- Critérios que caracterizam um achado crítico.
-- **Documento urgente e de baixa confiança:** vai para auditoria humana, dispara o alerta, ou os dois?
 
 ## 5. Decisões
 
@@ -105,6 +102,7 @@ Registro das decisões de arquitetura. Data: 19/10/2026 (fechamento da arquitetu
 | Integração n8n e OCI | Leitura dos buckets OCI pelo n8n validada com sucesso | Conexão via API compatível com S3, utilizando Force Path Style. Testes de listagem e leitura de documentos realizados na Fase 2 |
 
 **Em aberto:**
+
 - Documento urgente e de baixa confiança: vai para auditoria humana, dispara o alerta, ou os dois? (#5)
 
 O histórico completo fica em [`docs/decisoes.md`](https://github.com/No-Country-simulation/G10-BRASIL-equipo-7/blob/main/docs/decisoes.md).
@@ -119,7 +117,7 @@ mediflow/
 │   ├── nodes/      # extrair.py, validar.py, decidir_rota.py
 │   ├── schemas.py  # contratos Pydantic (#1)
 │   └── rules.py    # regras de triagem (#5)
-├── storage/        # armazenamento local e integração futura com OCI
+├── storage/        # armazenamento local e nos buckets da OCI (#22)
 ├── alerts/         # alerta de urgência (#13)
 ├── n8n/            # workflows do n8n
 ├── data/sinteticos/# documentos fictícios de teste (#4)
@@ -139,11 +137,12 @@ Se ainda não existir um `.env`, copie `.env.example` para `.env`. Se já existi
 
 ```dotenv
 AGENT_MODE=mock
+STORAGE_MODE=local
 STORAGE_LOCAL_DIR=.local/storage
 AGENT_TIMEOUT_SECONDS=30
 ```
 
-A API lê o `.env` da raiz; variáveis já exportadas no terminal têm prioridade. Inicie o servidor:
+Para gravar nos buckets da OCI, use `STORAGE_MODE=oci` e preencha as variáveis `OCI_*` conforme o [guia da API](docs/api.md#gravar-nos-buckets-da-oci). A API lê o `.env` da raiz; variáveis já exportadas no terminal têm prioridade. Inicie o servidor:
 
 ```bash
 python -m uvicorn api.main:app --reload
@@ -182,11 +181,11 @@ Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Enviados 
 - Entrada: receituário digitalizado com baixa qualidade: nome, CRM e dose ilegíveis ("5 ou 50 mg"), diagnóstico não informado.
 - Resultado esperado: confiança baixa. Rota **ambiguidade**, gravado em `auditoria-humana/ambiguidade` para revisão humana, sem alerta.
 
-O mock usa scores fixos de 0,96 (rotina), 0,93 (urgência) e 0,41 (ambiguidade). São exemplos para integração; o cálculo real depende da implementação das regras de triagem.
+O mock usa scores fixos de 0,96 (rotina), 0,93 (urgência) e 0,41 (ambiguidade). São exemplos para integração; o grafo calcula o score no nó `validar` e decide a rota pelas regras configuradas.
 | Arquivo | Rota | Destino principal | Bucket | Revisão humana | Alerta |
 |---|---|---|---|---|---|
 | `doc_teste_001_rotina.json` | `/rotina` | `Farmacia_Hospitalar` | `processados` | não | não |
-| `doc_teste_002_urgencia.json` | `/urgencia` | `Fila_Emergencia_Medica` | `processados` | não (se score ≥ 0,85) | sim |
+| `doc_teste_002_urgencia.json` | `/urgencia` | `Fila_Emergencia_Medica` | `processados` | não (score ≥ 0,85 e nenhuma trava) | simulado |
 | `doc_teste_003_ambiguidade.json` | `/ambiguidade` | `Fila_Revisao_Humana` | `auditoria-humana` | sim | não |
 
 ## 8. Limitações e próximos passos
