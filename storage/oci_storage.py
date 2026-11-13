@@ -97,6 +97,7 @@ class ArmazenamentoObjectStorage:
             # (AccessDenied, NoSuchBucket...) fica aqui, sem dados do documento.
             log.error("Falha ao gravar %s no bucket %s: %s", objeto, bucket, erro)
             raise
+        log.info("Objeto salvo na OCI: bucket=%s objeto=%s", bucket, objeto)
 
     def _enviar_original(self, destino: Path, chave: str, conteudo: bytes) -> None:
         tipo = TIPOS.get(Path(chave).suffix.lower(), "application/octet-stream")

@@ -1,4 +1,5 @@
 """API FastAPI (#9). Rodar: uvicorn api.main:app --reload"""
+import logging
 import os
 from pathlib import Path
 from typing import Annotated
@@ -13,6 +14,7 @@ from storage.oci_storage import obter_armazenamento_oci
 
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="MediFlow")
 

@@ -91,6 +91,10 @@ class ServicoTriagem:
             await to_thread.run_sync(
                 self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json")
             )
+            log.info(
+                "Resultado salvo: documento_id=%s chave=%s rota=%s",
+                resultado.documento_id, chave, resultado.classificacao,
+            )
         except Exception as erro:
             log.error(
                 "Falha ao registrar resultado na ambiguidade: chave=%s (%s)",
@@ -127,6 +131,7 @@ class ServicoTriagem:
                 "bytes": conteudo,
                 "canal_origem": canal_origem or documento.get("canal_origem"),
             }
+            log.info("Documento recebido: documento_id=%s chave=%s", documento_id, chave)
 
             motivo = "Não foi possível concluir a triagem."
             resultado = await self._triar(documento, caso_mock)
@@ -140,6 +145,10 @@ class ServicoTriagem:
             motivo = "Não foi possível salvar o resultado da triagem."
             await to_thread.run_sync(
                 self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json")
+            )
+            log.info(
+                "Resultado salvo: documento_id=%s chave=%s rota=%s",
+                documento_id, chave, resultado.classificacao,
             )
             return resultado
         except Exception as erro:
