@@ -1,13 +1,15 @@
 import json
+import logging
 from pathlib import Path
 
+import anyio
 from fastapi.testclient import TestClient
 import pytest
 
-from agent.adapters import MOCKS
+from agent.adapters import AgenteSimulado, MOCKS
 from api.main import app, obter_armazenamento, obter_servico
 from api.service import ServicoTriagem
-from storage.local_storage import ArmazenamentoLocal
+from storage.local_storage import ArmazenamentoLocal, criar_chave
 from storage.oci_storage import (
     ArmazenamentoObjectStorage, criar_cliente, obter_armazenamento_oci,
 )
@@ -128,6 +130,7 @@ def test_rejeita_classificacao_sem_destino():
 
 
 def test_falha_do_bucket_e_registrada_e_propagada(caplog):
+    caplog.set_level(logging.INFO)
     class ClienteIndisponivel:
         def put_object(self, **_):
             raise OSError("AccessDenied")
@@ -137,6 +140,7 @@ def test_falha_do_bucket_e_registrada_e_propagada(caplog):
 
     assert "mediflow-recebidos" in caplog.text
     assert "AccessDenied" in caplog.text
+    assert "Objeto salvo na OCI" not in caplog.text
 
 
 def test_cliente_usa_endpoint_s3_da_oci_com_path_style(credenciais):
@@ -206,15 +210,24 @@ def test_api_seleciona_armazenamento_pelo_modo(credenciais, monkeypatch):
     (3, "ambiguidade", "mediflow-auditoria-humana", "ambiguidade"),
 ])
 def test_triagem_dos_documentos_de_teste_grava_nos_buckets_certos(
-    monkeypatch, numero, caso, bucket, prefixo
+    monkeypatch, caplog, numero, caso, bucket, prefixo
 ):
+    caplog.set_level(logging.INFO)
     monkeypatch.setenv("AGENT_MODE", "mock")
     monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "30")
     cliente = ClienteFalso()
-    servico = ServicoTriagem(ArmazenamentoObjectStorage(cliente))
-    app.dependency_overrides[obter_servico] = lambda: servico
     nome = f"doc_teste_{numero:03d}_{caso}.json"
     conteudo = (RAIZ / "data/sinteticos" / nome).read_bytes()
+
+    def agente_apos_gravacao_original():
+        assert len(cliente.objetos) == 1
+        (bucket_original, _), original = next(iter(cliente.objetos.items()))
+        assert bucket_original == "mediflow-recebidos"
+        assert original == conteudo
+        return AgenteSimulado()
+
+    servico = ServicoTriagem(ArmazenamentoObjectStorage(cliente), agente_apos_gravacao_original)
+    app.dependency_overrides[obter_servico] = lambda: servico
     try:
         with TestClient(app) as client:
             resposta = client.post(
@@ -237,3 +250,72 @@ def test_triagem_dos_documentos_de_teste_grava_nos_buckets_certos(
         esperados.add((bucket, f"{prefixo}/{chave}"))
         assert cliente.objetos[(bucket, f"{prefixo}/{chave}")] == conteudo
     assert set(cliente.objetos) == esperados
+    registros = [r for r in caplog.records if r.name == "storage.oci_storage" and r.levelno == logging.INFO]
+    assert {r.args for r in registros} == esperados
+    assert len(registros) == len(esperados)
+    assert f"Documento recebido: documento_id={resposta.json()['documento_id']} chave={chave}" in caplog.text
+    assert f"Resultado salvo: documento_id={resposta.json()['documento_id']} chave={chave} rota={caso}" in caplog.text
+
+
+def test_nomes_repetidos_preservam_os_dois_originais_e_resultados():
+    cliente = ClienteFalso()
+    armazenamento = ArmazenamentoObjectStorage(cliente)
+    chaves = [criar_chave("receita.pdf") for _ in range(2)]
+    for chave, conteudo in zip(chaves, [b"primeiro", b"segundo"]):
+        armazenamento.salvar_original(chave, conteudo)
+        armazenamento.salvar_resultado(chave, {"classificacao": "rotina"})
+
+    assert chaves[0] != chaves[1]
+    assert len(cliente.objetos) == 4
+    assert [cliente.objetos[("mediflow-recebidos", chave)] for chave in chaves] == [b"primeiro", b"segundo"]
+    for chave in chaves:
+        assert json.loads(cliente.objetos[("mediflow-processados", f"rotina/{chave}.triagem.json")]) == {
+            "classificacao": "rotina",
+        }
+
+
+@pytest.mark.parametrize("falha,cenario,quantidade_salva", [
+    ("recebidos", "rotina", 2), ("resultado_processado", "rotina", 3),
+    ("copia", "ambiguidade", 2), ("resultado_ambiguo", "ambiguidade", 2),
+    ("todos", "rotina", 0),
+])
+def test_falhas_oci_preservam_o_possivel_e_registram_apenas_gravacoes_confirmadas(
+    monkeypatch, caplog, falha, cenario, quantidade_salva
+):
+    monkeypatch.setenv("AGENT_MODE", "mock")
+    caplog.set_level(logging.INFO)
+
+    class ClienteComFalha(ClienteFalso):
+        def put_object(self, Bucket, Key, Body, ContentType):
+            etapa = {
+                ("mediflow-recebidos", False): "recebidos",
+                ("mediflow-processados", True): "resultado_processado",
+                ("mediflow-auditoria-humana", False): "copia",
+                ("mediflow-auditoria-humana", True): "resultado_ambiguo",
+            }[(Bucket, Key.endswith(".triagem.json"))]
+            if falha in {etapa, "todos"}:
+                raise OSError("AccessDenied")
+            super().put_object(Bucket, Key, Body, ContentType)
+
+    cliente = ClienteComFalha()
+    conteudo = b'{"documento_id":"DOC-TESTE-001"}'
+    resultado = anyio.run(
+        ServicoTriagem(ArmazenamentoObjectStorage(cliente)).processar,
+        "receita.json", "application/json", conteudo, "", cenario,
+    )
+
+    assert resultado.classificacao == "ambiguidade"
+    assert resultado.destino_principal == "Fila_Revisao_Humana"
+    assert resultado.score_confianca == 0
+    assert len(cliente.objetos) == quantidade_salva
+    for (_, chave), corpo in cliente.objetos.items():
+        if chave.endswith(".triagem.json"):
+            assert json.loads(corpo) == resultado.model_dump(mode="json")
+        else:
+            assert corpo == conteudo
+    registros = [r for r in caplog.records if r.name == "storage.oci_storage" and r.levelno == logging.INFO]
+    assert {r.args for r in registros} == set(cliente.objetos)
+    assert len(registros) == quantidade_salva
+    assert "AccessDenied" in caplog.text
+    salvos = [r for r in caplog.records if r.name == "api.service" and r.msg.startswith("Resultado salvo")]
+    assert len(salvos) == (0 if falha in {"resultado_ambiguo", "todos"} else 1)

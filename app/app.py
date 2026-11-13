@@ -27,7 +27,7 @@ CAMPOS_RESPOSTA = (
 )
 # A API tenta o agente duas vezes (30 s cada), então o cliente espera um pouco mais.
 TIMEOUT_SEGUNDOS = 75
-FORMATOS_ACEITOS = "PDF, PNG, JPG ou JSON"
+FORMATOS_ACEITOS = "PDF, PNG, JPG, JPEG ou JSON"
 
 MENSAGENS_HTTP = {
     400: "O arquivo está vazio. Escolha outro documento.",
@@ -40,11 +40,9 @@ def url_api():
     return os.getenv("API_URL", "http://localhost:8000").rstrip("/")
 
 
-def triar(arquivo, canal, caso_mock=None):
+def triar(arquivo, canal):
     """Envia o arquivo para POST /triagem e devolve o JSON de triagem."""
     dados = {"canal_origem": canal}
-    if caso_mock is not None:
-        dados["caso_mock"] = caso_mock
     resposta = requests.post(
         f"{url_api()}/triagem",
         files={
@@ -59,6 +57,8 @@ def triar(arquivo, canal, caso_mock=None):
     )
     resposta.raise_for_status()
     resultado = resposta.json()
+    if not isinstance(resultado, dict):
+        raise ValueError("A resposta de triagem deve conter um objeto JSON")
     faltando = [c for c in CAMPOS_RESPOSTA if c not in resultado]
     if faltando:
         raise ValueError(f"campos ausentes na resposta: {', '.join(faltando)}")
@@ -108,13 +108,6 @@ def rotulo_campo(campo):
     return str(campo).replace("_", " ").capitalize()
 
 
-st.sidebar.header("Modo de teste")
-caso = st.sidebar.selectbox(
-    "Cenário simulado (só vale com AGENT_MODE=mock)",
-    [None, *ROTULO],
-    format_func=lambda c: "Automático (pelo ID do documento)" if c is None else ROTULO[c],
-)
-
 st.title("MediFlow")
 st.caption("Triagem de documentos médicos. Somente dados fictícios.")
 
@@ -122,7 +115,7 @@ resultado = st.session_state.get("resultado")
 
 if resultado is None:
     st.subheader("Enviar documento para triagem")
-    arquivo = st.file_uploader("Documento", type=["pdf", "png", "jpg", "json"])
+    arquivo = st.file_uploader("Documento", type=["pdf", "png", "jpg", "jpeg", "json"])
     canal = st.selectbox("Canal de origem", ["Ambulatório", "Pronto-Socorro", "Balcão"])
     if st.button("Enviar para triagem", type="primary"):
         if arquivo is None:
@@ -130,7 +123,7 @@ if resultado is None:
         else:
             try:
                 with st.spinner("Processando documento…"):
-                    st.session_state["resultado"] = triar(arquivo, canal, caso)
+                    st.session_state["resultado"] = triar(arquivo, canal)
             except (requests.RequestException, ValueError) as erro:
                 st.error(mensagem_de_erro(erro))
                 with st.expander("Detalhes técnicos"):
@@ -139,7 +132,7 @@ if resultado is None:
                 st.rerun()
 else:
     rota = resultado["classificacao"]
-    BANNER[rota](f"**{ROTULO[rota]}** — salvo em `{resultado['destino_principal']}`")
+    BANNER[rota](f"**{ROTULO[rota]}** — Encaminhado para `{resultado['destino_principal']}`")
     if resultado["alerta_enviado"]:
         st.caption("Alerta de urgência enviado.")
 

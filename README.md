@@ -6,7 +6,7 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
 
-A API já funciona localmente com agente simulado e armazenamento em disco; com `STORAGE_MODE=oci`, grava nos buckets da OCI. Veja o [guia da API](docs/api.md) para iniciar o servidor, enviar seus próprios arquivos e conferir os resultados. A extração real com Gemini e o envio de alertas ainda dependem das próximas integrações.
+A interface Streamlit chama a API, que executa extração com Gemini, validação, roteamento e gravação na OCI com `AGENT_MODE=real` e `STORAGE_MODE=oci`. Os três cenários foram verificados ao vivo em 12/11/2026. O envio real de alertas pertence à issue #13. A configuração e os resultados estão no [guia rápido](docs/guia-rapido.md).
 
 ## 1. Problema e objetivo
 
@@ -66,7 +66,7 @@ flowchart TD
 | **Decidir Rota** | Aplica as regras de triagem e escolhe uma das 3 rotas. |
 | **Bucket `processados`** | Pastas `rotina` (confiança alta) e `urgencia` (crítico). |
 | **Bucket `auditoria-humana`** | Pasta `ambiguidade`, para revisão humana. |
-| **Alerta de urgência** | Webhook/n8n acionado depois de gravar em `urgencia`. Se falhar, a triagem não pode cair. |
+| **Alerta de urgência** | A integração #13 prevê webhook/n8n após gravar em `urgencia`, com tratamento de falhas de envio. |
 | **Fase 2 (opcional)** | Agente de consulta e chat com acesso somente leitura aos buckets. |
 
 ## 3. Fluxo e as 3 rotas
@@ -79,7 +79,7 @@ flowchart TD
 | Rota | Quando | Destino | Efeito extra |
 |---|---|---|---|
 | **Rotina** | Documento completo, sem gravidade, confiança alta | `processados/rotina` | Nenhum |
-| **Urgência** | Achado crítico no conteúdo | `processados/urgencia` | Dispara o alerta |
+| **Urgência** | Achado crítico no conteúdo | `processados/urgencia` | Gera a notificação no grafo, com envio previsto na #13 |
 | **Ambiguidade** | Dados ilegíveis, ausentes ou confiança baixa | `auditoria-humana/ambiguidade` | Revisão humana |
 
 ## 4. Regras de triagem
@@ -133,60 +133,61 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt
 ```
 
-Se ainda não existir um `.env`, copie `.env.example` para `.env`. Se já existir, preserve seu conteúdo e confira estas configurações:
+Se ainda não existir um `.env`, copie `.env.example` para `.env`. Para a demonstração com Gemini e OCI, preserve suas credenciais existentes e configure os modos abaixo.
 
 ```dotenv
-AGENT_MODE=mock
-STORAGE_MODE=local
-STORAGE_LOCAL_DIR=.local/storage
+AGENT_MODE=real
+STORAGE_MODE=oci
+API_URL=http://127.0.0.1:8000
 AGENT_TIMEOUT_SECONDS=30
 ```
 
-Para gravar nos buckets da OCI, use `STORAGE_MODE=oci` e preencha as variáveis `OCI_*` conforme o [guia da API](docs/api.md#gravar-nos-buckets-da-oci). A API lê o `.env` da raiz; variáveis já exportadas no terminal têm prioridade. Inicie o servidor:
+Preencha a chave Gemini, as variáveis `OCI_*` e os nomes dos três buckets conforme o [guia rápido](docs/guia-rapido.md). A API lê o `.env` da raiz. Variáveis já exportadas no terminal têm prioridade. Inicie o servidor.
 
 ```bash
 python -m uvicorn api.main:app --reload
 ```
 
-Abra <http://127.0.0.1:8000/docs> para escolher um arquivo e testar `POST /triagem`. Para um PDF ou imagem seu, selecione `caso_mock=rotina`, `urgencia` ou `ambiguidade`: o conteúdo ainda não passa por OCR ou análise de IA. Os exemplos com `curl`, JSON próprio e integração do front estão no [guia da API](docs/api.md).
+Abra <http://127.0.0.1:8000/docs> para escolher um arquivo e testar `POST /triagem`. No modo real, o conteúdo de PDF, imagem ou JSON é enviado ao Gemini. Os exemplos de upload estão no [guia da API](docs/api.md).
 
 Em outro terminal, com o ambiente ativado:
 
 ```bash
-# Interface: ainda funciona com seus próprios mocks, até conectar a função triar à API.
-streamlit run app/app.py
+# Interface conectada à API
+python -m streamlit run app/app.py
 
 # Testes automatizados: usam diretórios temporários, sem gravar nos buckets locais.
-python -m pytest -q
+AGENT_MODE=mock STORAGE_MODE=local python -m pytest -q
 ```
 
 Nunca commite o `.env`. Veja o `CONTRIBUTING.md` para o fluxo de branch e PR.
 
 ## 7. Cenários da demo
 
-Três documentos fictícios, em `data/sinteticos/`, cobrem as 3 rotas. Enviados à API em modo `mock`, seus IDs selecionam automaticamente os cenários abaixo: o original vai para `recebidos` e o resultado é salvo no destino da rota. A tela Streamlit ainda mantém sua simulação independente.
+Três documentos fictícios, em `data/sinteticos/`, cobrem as três rotas. Envie-os pela interface com `AGENT_MODE=real` e `STORAGE_MODE=oci`. O original vai para `mediflow-recebidos` e o resultado é salvo no bucket e prefixo da rota. Na ambiguidade, uma cópia do original acompanha o resultado para revisão humana.
 
 **Cenário 1: rotina** (`doc_teste_001_rotina.json`)
 
 - Entrada: receituário completo de controle de hipertensão (paciente, médico com CRM e prescrição legíveis).
-- Resultado esperado: confiança alta, nenhum sinal de gravidade. Rota **rotina**, gravado em `processados/rotina`, sem alerta.
+- A rota esperada é **rotina**, com confiança alta e resultado em `mediflow-processados/rotina`.
 
 **Cenário 2: urgência** (`doc_teste_002_urgencia.json`)
 
 - Entrada: laudo de tomografia com achado compatível com hemorragia subaracnoidea aguda e recomendação de avaliação neurocirúrgica imediata.
-- Resultado esperado no mock: rota **urgência**, gravado em `processados/urgencia` e `alerta_enviado=true` simulado. Nenhum webhook é chamado; o envio real de alertas pertence à issue #13.
+- Resultado esperado na execução real com os buckets oficiais é rota **urgência** e resultado em `mediflow-processados/urgencia`. O envio de alertas pertence à issue #13.
 
 **Cenário 3: ambiguidade** (`doc_teste_003_ambiguidade.json`)
 
 - Entrada: receituário digitalizado com baixa qualidade: nome, CRM e dose ilegíveis ("5 ou 50 mg"), diagnóstico não informado.
-- Resultado esperado: confiança baixa. Rota **ambiguidade**, gravado em `auditoria-humana/ambiguidade` para revisão humana, sem alerta.
+- A rota esperada é **ambiguidade**, com confiança baixa e resultado em `mediflow-auditoria-humana/ambiguidade` para revisão humana.
 
-O mock usa scores fixos de 0,96 (rotina), 0,93 (urgência) e 0,41 (ambiguidade). São exemplos para integração; o grafo calcula o score no nó `validar` e decide a rota pelas regras configuradas.
-| Arquivo | Rota | Destino principal | Bucket | Revisão humana | Alerta |
-|---|---|---|---|---|---|
-| `doc_teste_001_rotina.json` | `/rotina` | `Farmacia_Hospitalar` | `processados` | não | não |
-| `doc_teste_002_urgencia.json` | `/urgencia` | `Fila_Emergencia_Medica` | `processados` | não (score ≥ 0,85 e nenhuma trava) | simulado |
-| `doc_teste_003_ambiguidade.json` | `/ambiguidade` | `Fila_Revisao_Humana` | `auditoria-humana` | sim | não |
+O grafo calcula o score no nó `validar` e decide a rota pelas regras configuradas. Os scores observados e as chaves dos arquivos da demonstração estão no [guia rápido](docs/guia-rapido.md).
+
+| Arquivo | Rota | Destino principal | Bucket do resultado |
+|---|---|---|---|
+| `doc_teste_001_rotina.json` | `rotina` | `Farmacia_Hospitalar` | `mediflow-processados` |
+| `doc_teste_002_urgencia.json` | `urgencia` | `Fila_Emergencia_Medica` | `mediflow-processados` |
+| `doc_teste_003_ambiguidade.json` | `ambiguidade` | `Fila_Revisao_Humana` | `mediflow-auditoria-humana` |
 
 ## 8. Limitações e próximos passos
 

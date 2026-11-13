@@ -53,12 +53,12 @@ def conferir_gravacao(armazenamento, conteudo, resultado):
     assert set(resultado) == CAMPOS
 
 
-def conferir_falha(resposta):
+def conferir_falha(resposta, destino="Fila_Revisao_Humana"):
     assert resposta.status_code == 200
     resultado = resposta.json()
     assert set(resultado) == CAMPOS
     assert resultado["classificacao"] == "ambiguidade"
-    assert resultado["destino_principal"] == "auditoria-humana/ambiguidade"
+    assert resultado["destino_principal"] == destino
     assert resultado["score_confianca"] == 0
     assert resultado["alerta_enviado"] is False
     assert resultado["dados_extraidos"] == {}
@@ -100,7 +100,7 @@ def test_formatos_binarios_com_cenario_explicito(ambiente, nome, mime, conteudo,
 def test_pdf_sem_cenario_vai_para_revisao(ambiente):
     client, armazenamento, _ = ambiente
     resposta = enviar(client)
-    resultado = conferir_falha(resposta)
+    resultado = conferir_falha(resposta, destino="auditoria-humana/ambiguidade")
     assert "simulado" in resultado["justificativa"]
     conferir_gravacao(armazenamento, b"%PDF-1.4\n%%EOF", resultado)
 
