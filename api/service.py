@@ -10,7 +10,7 @@ from collections.abc import Callable
 from anyio import fail_after, to_thread
 
 from agent.adapters import Agente, identificar_documento, obter_agente
-from agent.rules import DESTINOS
+from agent.config import carregar_configuracao
 from agent.schemas import ResultadoTriagem, Rota
 from storage.local_storage import Armazenamento, criar_chave
 
@@ -150,7 +150,7 @@ class ServicoTriagem:
             resultado = ResultadoTriagem(
                 documento_id=documento_id,
                 classificacao="ambiguidade",
-                destino_principal=DESTINOS["ambiguidade"],
+                destino_principal=carregar_configuracao().roteamento.destino_ambiguidade,
                 score_confianca=0,
                 justificativa=f"{motivo} O documento requer revisão humana.",
                 alerta_enviado=False,
