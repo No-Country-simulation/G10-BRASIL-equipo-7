@@ -2,6 +2,8 @@
 
 A API recebe um arquivo por requisição, salva seu original, chama o agente e devolve o JSON de triagem na mesma resposta. O modo padrão usa simulação e armazenamento local; não exige Gemini nem OCI.
 
+Para executar a demonstração com Gemini e buckets OCI reais, siga o [guia rápido](guia-rapido.md), que inclui a configuração, os dois terminais e os resultados verificados da task #28.
+
 ## 1. Preparar e iniciar
 
 Na raiz do repositório, usando Linux ou macOS:
@@ -26,7 +28,7 @@ API_URL=http://localhost:8000
 
 | Variável | Função |
 | --- | --- |
-| `AGENT_MODE` | `mock` seleciona a simulação; `real` chama o grafo LangGraph. A adaptação do retorno do grafo ao contrato HTTP ainda está pendente. |
+| `AGENT_MODE` | `mock` seleciona a simulação. `real` executa o grafo e converte o resultado validado para os sete campos do contrato HTTP atual. |
 | `STORAGE_MODE` | `local` (padrão) grava em disco; `oci` grava nos buckets do OCI Object Storage, conforme a seção 5. |
 | `STORAGE_LOCAL_DIR` | Diretório dos buckets simulados. O caminho relativo parte do diretório onde o servidor é iniciado. |
 | `AGENT_TIMEOUT_SECONDS` | Tempo máximo por tentativa do agente. O padrão é 30 segundos, com uma repetição em falha técnica. |
@@ -172,7 +174,7 @@ O original precisa ser salvo e o JSON precisa ser interpretável antes da seleç
 
 O mock não analisa gravidade, não calcula confiança a partir do documento e não chama o Gemini. Na resposta simulada de urgência, `alerta_enviado=true` é apenas parte do exemplo: nenhum alerta real é enviado. A integração de alertas continua na issue #13.
 
-`AGENT_MODE=real` chama `agent.graph.triar`, cujos nós de extração, validação e roteamento estão implementados. O adaptador ainda espera o contrato HTTP antigo; sua migração fica em outra entrega. Ativar esse modo agora pode resultar em ambiguidade por falha técnica de contrato. Para conferir a decisão atual, execute o grafo diretamente, conforme as [regras de triagem](MediFlow%20%E2%80%94%20Regras%20de%20Triagem.md). O armazenamento é escolhido à parte por `STORAGE_MODE`; trocar o agente não ativa OCI.
+`AGENT_MODE=real` chama `agent.graph.triar`, executando extração pelo Gemini, validação e roteamento. `AgenteReal` valida o estado clínico, preserva o ID e converte o resultado para `ResultadoTriagem`. `destino_principal` contém o departamento ou fila. `alerta_enviado` fica `false` enquanto o envio de alertas segue na #13. Para o fluxo com buckets OCI, configure também `STORAGE_MODE=oci` e as credenciais conforme o [guia rápido](guia-rapido.md).
 
 ## 5. Onde conferir os arquivos
 
@@ -233,47 +235,22 @@ Os erros de validação HTTP retornam `detail`; eles não são JSONs de triagem.
 
 Uma falha técnica na chamada do agente tem uma segunda tentativa. Com o padrão de 30 segundos por tentativa, o agente pode consumir cerca de 60 segundos antes da ambiguidade, além do tempo de upload e armazenamento. A espera não bloqueia `/saude` nem as demais requisições. O timeout interrompe a espera pela thread, não a execução da função síncrona; uma resposta atrasada não grava nem substitui a triagem já devolvida pela API.
 
-## 7. Conectar a interface
+## 7. Executar a interface
 
-A tela Streamlit ainda usa sua função `triar` local. Para passar a chamar a API, substitua essa função pelo exemplo abaixo e mantenha o restante da renderização, que já consome os sete campos da resposta:
+A tela Streamlit envia `arquivo` e `canal_origem` por multipart para `POST /triagem` no endereço definido por `API_URL`. Ela consome os sete campos da resposta e mostra rota, departamento, dados extraídos, confiança e justificativa. Com a API iniciada, execute em outro terminal com a `.venv` ativada.
 
-```python
-import os
-
-from dotenv import load_dotenv
-import requests
-
-load_dotenv()
-
-
-def triar(arquivo, canal, caso_mock=None):
-    dados = {"canal_origem": canal}
-    if caso_mock is not None:
-        dados["caso_mock"] = caso_mock
-    resposta = requests.post(
-        f"{os.getenv('API_URL', 'http://localhost:8000').rstrip('/')}/triagem",
-        files={
-            "arquivo": (
-                arquivo.name,
-                arquivo.getvalue(),
-                arquivo.type or "application/octet-stream",
-            )
-        },
-        data=dados,
-        timeout=75,
-    )
-    resposta.raise_for_status()
-    return resposta.json()
+```bash
+python -m streamlit run app/app.py
 ```
 
-O timeout do cliente deve acomodar as duas tentativas do servidor; se aumentar `AGENT_TIMEOUT_SECONDS`, ajuste-o também. Trate `requests.RequestException` na interface para mostrar falhas de conexão e erros HTTP. Uma resposta HTTP 200 com ambiguidade é um resultado de triagem e segue para a renderização normal.
+Abra <http://localhost:8501>. A tela aceita PDF, PNG, JPG, JPEG e JSON. O timeout HTTP atual é de 75 segundos, contemplando as duas tentativas de 30 segundos do agente e uma margem para comunicação. Se aumentar `AGENT_TIMEOUT_SECONDS`, ajuste também `TIMEOUT_SEGUNDOS` na interface. Falhas de conexão, timeout e erros HTTP aparecem na tela. Uma resposta HTTP 200 com ambiguidade segue para a renderização do resultado.
 
 ## 8. Testes automatizados
 
 Com o ambiente ativado, na raiz do projeto:
 
 ```bash
-python -m pytest -q
+AGENT_MODE=mock STORAGE_MODE=local python -m pytest -q
 ```
 
 Para executar apenas os testes do endpoint:
