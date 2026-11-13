@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 from threading import Event
 from types import ModuleType
+from unittest.mock import Mock
 from uuid import UUID
 
 import anyio
@@ -11,9 +12,10 @@ import httpx
 import pytest
 
 from agent.adapters import AgenteSimulado, MOCKS
-from api.main import app, obter_armazenamento, obter_servico
+from api.main import app, obter_servico
 from api.service import ServicoTriagem
-from storage.local_storage import ArmazenamentoLocal, DESTINOS
+from storage.base import DESTINOS
+from tests.armazenamento import ArmazenamentoTeste
 
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -27,7 +29,7 @@ CAMPOS = {
 def ambiente(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_MODE", "mock")
     monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "30")
-    armazenamento = ArmazenamentoLocal(tmp_path)
+    armazenamento = ArmazenamentoTeste(tmp_path)
     servico = ServicoTriagem(armazenamento)
     app.dependency_overrides[obter_servico] = lambda: servico
     try:
@@ -414,14 +416,17 @@ def test_modo_real_delega_ao_grafo_e_mantem_contrato(ambiente, monkeypatch):
     conferir_gravacao(armazenamento, b"%PDF-1.4\n%%EOF", resposta.json())
 
 
-def test_dependencias_padrao_usam_armazenamento_configurado(tmp_path, monkeypatch):
+def test_dependencias_padrao_usam_oci(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_MODE", "mock")
-    monkeypatch.setenv("STORAGE_LOCAL_DIR", str(tmp_path))
     monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "30")
+    armazenamento = ArmazenamentoTeste(tmp_path)
+    obter_oci = Mock(return_value=armazenamento)
+    monkeypatch.setattr("api.main.obter_armazenamento_oci", obter_oci)
     with TestClient(app) as client:
         resposta = enviar(client, caso_mock="rotina")
     assert resposta.status_code == 200
-    conferir_gravacao(obter_armazenamento(), b"%PDF-1.4\n%%EOF", resposta.json())
+    obter_oci.assert_called_once()
+    conferir_gravacao(armazenamento, b"%PDF-1.4\n%%EOF", resposta.json())
 
 
 @pytest.fixture
@@ -448,7 +453,7 @@ async def test_timeout_nao_bloqueia_saude_e_documento_vai_para_ambiguidade(tmp_p
                 terminaram.set()
             return resultado
 
-    armazenamento = ArmazenamentoLocal(tmp_path)
+    armazenamento = ArmazenamentoTeste(tmp_path)
     servico = ServicoTriagem(armazenamento, AgenteLento, timeout_segundos=0.1)
     app.dependency_overrides[obter_servico] = lambda: servico
     respostas = []
@@ -495,7 +500,7 @@ async def test_timeout_na_primeira_tentativa_pode_recuperar(tmp_path):
                 liberar.wait(3)
             return AgenteSimulado().triar(documento, "rotina")
 
-    armazenamento = ArmazenamentoLocal(tmp_path)
+    armazenamento = ArmazenamentoTeste(tmp_path)
     servico = ServicoTriagem(armazenamento, AgenteLentoUmaVez, timeout_segundos=0.05)
     try:
         with anyio.fail_after(2):

@@ -1,6 +1,5 @@
 """API FastAPI (#9). Rodar: uvicorn api.main:app --reload"""
 import logging
-import os
 from pathlib import Path
 from typing import Annotated
 
@@ -9,7 +8,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 
 from agent.schemas import ResultadoTriagem, Rota
 from api.service import ServicoTriagem
-from storage.local_storage import Armazenamento, ArmazenamentoLocal
+from storage.base import Armazenamento
 from storage.oci_storage import obter_armazenamento_oci
 
 
@@ -28,12 +27,7 @@ TIPOS_POR_EXTENSAO = {
 
 
 def obter_armazenamento() -> Armazenamento:
-    modo = os.getenv("STORAGE_MODE", "local")
-    if modo == "local":
-        return ArmazenamentoLocal()
-    if modo == "oci":
-        return obter_armazenamento_oci()
-    raise ValueError("STORAGE_MODE deve ser local ou oci")
+    return obter_armazenamento_oci()
 
 
 def obter_servico(

@@ -12,7 +12,7 @@ from anyio import fail_after, to_thread
 from agent.adapters import Agente, identificar_documento, obter_agente
 from agent.config import carregar_configuracao
 from agent.schemas import ResultadoTriagem, Rota
-from storage.local_storage import Armazenamento, criar_chave
+from storage.base import Armazenamento, criar_chave
 
 
 log = logging.getLogger(__name__)

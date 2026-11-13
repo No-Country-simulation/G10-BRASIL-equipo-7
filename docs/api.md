@@ -1,6 +1,6 @@
 # API MediFlow: execução e testes manuais
 
-A API recebe um arquivo por requisição, salva seu original, chama o agente e devolve o JSON de triagem na mesma resposta. O modo padrão usa simulação e armazenamento local; não exige Gemini nem OCI.
+A API recebe um arquivo por requisição, salva seu original na OCI, chama o agente e devolve o JSON de triagem na mesma resposta. Configure as credenciais OCI para iniciar os uploads. `AGENT_MODE=real` usa o Gemini para a triagem.
 
 Para executar a demonstração com Gemini e buckets OCI reais, siga o [guia rápido](guia-rapido.md), que inclui a configuração, os dois terminais e os resultados verificados da task #28.
 
@@ -20,8 +20,6 @@ Se ainda não houver `.env`, copie `.env.example` para `.env` pelo editor. Se j�
 
 ```dotenv
 AGENT_MODE=mock
-STORAGE_MODE=local
-STORAGE_LOCAL_DIR=.local/storage
 AGENT_TIMEOUT_SECONDS=30
 API_URL=http://localhost:8000
 ```
@@ -29,12 +27,10 @@ API_URL=http://localhost:8000
 | Variável | Função |
 | --- | --- |
 | `AGENT_MODE` | `mock` seleciona a simulação. `real` executa o grafo e converte o resultado validado para os sete campos do contrato HTTP atual. |
-| `STORAGE_MODE` | `local` (padrão) grava em disco; `oci` grava nos buckets do OCI Object Storage, conforme a seção 5. |
-| `STORAGE_LOCAL_DIR` | Diretório dos buckets simulados. O caminho relativo parte do diretório onde o servidor é iniciado. |
 | `AGENT_TIMEOUT_SECONDS` | Tempo máximo por tentativa do agente. O padrão é 30 segundos, com uma repetição em falha técnica. |
 | `API_URL` | Endereço para o cliente que chama a API; não configura a porta do servidor. |
 
-A API carrega o `.env` da raiz sem substituir variáveis já exportadas no terminal. Reinicie o servidor após alterar essas configurações. As variáveis `OCI_*` só são usadas com `STORAGE_MODE=oci`. `ALERTA_WEBHOOK_URL` ainda não ativa o envio de alertas na API atual.
+A API carrega o `.env` da raiz e prioriza variáveis já exportadas no terminal. Reinicie o servidor após alterar essas configurações. As variáveis `OCI_*` configuram o armazenamento obrigatório nos buckets. O envio de alertas pertence à integração #13.
 
 Inicie e mantenha este terminal aberto:
 
@@ -174,45 +170,25 @@ O original precisa ser salvo e o JSON precisa ser interpretável antes da seleç
 
 O mock não analisa gravidade, não calcula confiança a partir do documento e não chama o Gemini. Na resposta simulada de urgência, `alerta_enviado=true` é apenas parte do exemplo: nenhum alerta real é enviado. A integração de alertas continua na issue #13.
 
-`AGENT_MODE=real` chama `agent.graph.triar`, executando extração pelo Gemini, validação e roteamento. `AgenteReal` valida o estado clínico, preserva o ID e converte o resultado para `ResultadoTriagem`. `destino_principal` contém o departamento ou fila. `alerta_enviado` fica `false` enquanto o envio de alertas segue na #13. Para o fluxo com buckets OCI, configure também `STORAGE_MODE=oci` e as credenciais conforme o [guia rápido](guia-rapido.md).
+`AGENT_MODE=real` chama `agent.graph.triar`, executando extração pelo Gemini, validação e roteamento. `AgenteReal` valida o estado clínico, preserva o ID e converte o resultado para `ResultadoTriagem`. `destino_principal` contém o departamento ou fila. `alerta_enviado` fica `false` enquanto o envio de alertas segue na #13. Configure as credenciais OCI conforme o [guia rápido](guia-rapido.md).
 
 ## 5. Onde conferir os arquivos
 
-Com a configuração padrão, os buckets são diretórios dentro do projeto:
+Os arquivos são gravados nos três buckets OCI, pela API compatível com S3 e Force Path Style. Cada upload recebe uma chave com um UUID completo e o nome do arquivo, como `<uuid>_exame.pdf`. O nome é normalizado para remover caminhos, converter espaços em `_` e substituir caracteres especiais. A extensão é preservada em minúsculas e o nome base tem limite de 120 caracteres.
 
-```text
-.local/storage/
-├── recebidos/
-│   └── <chave>.pdf
-├── processados/
-│   ├── rotina/
-│   │   └── <chave>.pdf.triagem.json
-│   └── urgencia/
-│       └── <chave>.pdf.triagem.json
-└── auditoria-humana/
-    └── ambiguidade/
-        ├── <chave>.pdf
-        └── <chave>.pdf.triagem.json
-```
-
-Cada upload recebe uma chave aleatória, mantendo a extensão do arquivo, por exemplo `a1b2...pdf`. O nome original e o `documento_id` não são usados como caminho. Reenviar o mesmo nome ou ID gera outro arquivo, sem sobrescrever o anterior. As pastas são criadas conforme os uploads; a árvore mostra os destinos possíveis.
-
-O arquivo em `recebidos` mantém os bytes originais. O arquivo `.triagem.json` contém a mesma resposta devolvida pela API. Na ambiguidade, também se tenta preservar uma cópia do original junto do resultado. Se o armazenamento falhar, a API registra o problema e responde sem garantir que os arquivos tenham sido gravados. `.local/storage` está ignorado no Git.
-
-### Gravar nos buckets da OCI
-
-Com `STORAGE_MODE=oci`, os mesmos arquivos vão para os buckets oficiais (região `sa-saopaulo-1`), pela API compatível com S3 e Force Path Style, a mesma integração validada no n8n (#12):
+O mesmo identificador relaciona o original, sua triagem e a cópia para revisão. Enviar novamente um arquivo gera outro UUID. O `documento_id` permanece disponível no JSON de triagem e nos logs.
 
 | Bucket | Objetos |
 | --- | --- |
-| `mediflow-recebidos` | `<chave>.pdf` |
-| `mediflow-processados` | `rotina/<chave>.pdf.triagem.json` e `urgencia/<chave>.pdf.triagem.json` |
-| `mediflow-auditoria-humana` | `ambiguidade/<chave>.pdf` e `ambiguidade/<chave>.pdf.triagem.json` |
+| `mediflow-recebidos` | `<uuid>_exame.pdf` |
+| `mediflow-processados` | `rotina/<uuid>_exame.pdf.triagem.json` ou `urgencia/<uuid>_exame.pdf.triagem.json` |
+| `mediflow-auditoria-humana` | `ambiguidade/<uuid>_exame.pdf` e `ambiguidade/<uuid>_exame.pdf.triagem.json` |
+
+O original preserva os bytes enviados, e o resultado contém o JSON devolvido pela API. Na ambiguidade, o serviço tenta guardar também uma cópia do original para revisão. As falhas de gravação são registradas nos logs. Os objetos de uploads anteriores podem ser consultados por suas chaves existentes.
 
 Preencha no `.env`, sem commitar os valores:
 
 ```dotenv
-STORAGE_MODE=oci
 OCI_NAMESPACE=<namespace do tenancy>
 OCI_REGION=sa-saopaulo-1
 OCI_S3_ACCESS_KEY=<Access Key da Customer Secret Key>
@@ -229,7 +205,7 @@ O endpoint é montado como `https://<namespace>.compat.objectstorage.<região>.o
 | `400` | Arquivo vazio. |
 | `415` | Extensão não aceita ou MIME incompatível. |
 | `422` | Falta o campo `arquivo`, a requisição está fora do formato esperado ou `caso_mock` é inválido. |
-| `500` | `STORAGE_MODE` inválido ou configuração OCI incompleta. O terminal do servidor informa a variável. |
+| `500` | Configuração OCI incompleta. O terminal do servidor informa a variável. |
 
 Os erros de validação HTTP retornam `detail`; eles não são JSONs de triagem. JSON malformado, exceção do agente, saída inválida e falha de armazenamento retornam o contrato de triagem com ambiguidade, confiança zero, alerta falso e dados extraídos vazios. Nos erros de upload acima, o processamento não inicia e nenhum original é salvo.
 
@@ -250,7 +226,7 @@ Abra <http://localhost:8501>. A tela aceita PDF, PNG, JPG, JPEG e JSON. O timeou
 Com o ambiente ativado, na raiz do projeto:
 
 ```bash
-AGENT_MODE=mock STORAGE_MODE=local python -m pytest -q
+AGENT_MODE=mock python -m pytest -q
 ```
 
 Para executar apenas os testes do endpoint:
