@@ -9,7 +9,7 @@ import pytest
 from agent.adapters import AgenteSimulado, MOCKS
 from api.main import app, obter_armazenamento, obter_servico
 from api.service import ServicoTriagem
-from storage.local_storage import ArmazenamentoLocal, criar_chave
+from storage.base import criar_chave
 from storage.oci_storage import (
     ArmazenamentoObjectStorage, criar_cliente, obter_armazenamento_oci,
 )
@@ -18,7 +18,7 @@ from storage.oci_storage import (
 RAIZ = Path(__file__).resolve().parents[1]
 
 VARIAVEIS = [
-    "STORAGE_MODE", "OCI_NAMESPACE", "OCI_REGION", "OCI_S3_ENDPOINT",
+    "OCI_NAMESPACE", "OCI_REGION", "OCI_S3_ENDPOINT",
     "OCI_S3_ACCESS_KEY", "OCI_S3_SECRET_KEY",
     "OCI_BUCKET_RECEBIDOS", "OCI_BUCKET_PROCESSADOS", "OCI_BUCKET_AUDITORIA",
 ]
@@ -191,17 +191,10 @@ def test_configuracao_incompleta_informa_a_variavel(credenciais, monkeypatch, au
         criar_cliente()
 
 
-def test_api_seleciona_armazenamento_pelo_modo(credenciais, monkeypatch):
-    assert isinstance(obter_armazenamento(), ArmazenamentoLocal)
-
-    monkeypatch.setenv("STORAGE_MODE", "oci")
+def test_api_usa_oci_e_reaproveita_cliente(credenciais):
     armazenamento = obter_armazenamento()
     assert isinstance(armazenamento, ArmazenamentoObjectStorage)
     assert obter_armazenamento() is armazenamento
-
-    monkeypatch.setenv("STORAGE_MODE", "outro")
-    with pytest.raises(ValueError, match="STORAGE_MODE"):
-        obter_armazenamento()
 
 
 @pytest.mark.parametrize("numero,caso,bucket,prefixo", [

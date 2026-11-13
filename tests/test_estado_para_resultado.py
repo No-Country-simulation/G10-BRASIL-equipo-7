@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from agent.adapters import estado_para_resultado
 from agent.schemas import ExtracaoDocumento
 from api.service import ServicoTriagem
-from storage.local_storage import ArmazenamentoLocal
+from tests.armazenamento import ArmazenamentoTeste
 
 
 def _estado(rota="rotina", destino="Farmacia_Hospitalar", score=0.9):
@@ -101,7 +101,7 @@ def test_agente_real_repete_saida_invalida_e_persiste_resposta(tmp_path, monkeyp
     grafo = ModuleType("agent.graph")
     grafo.triar = Mock(side_effect=[invalido, _estado() if recupera else invalido])
     monkeypatch.setitem(sys.modules, "agent.graph", grafo)
-    armazenamento = ArmazenamentoLocal(tmp_path)
+    armazenamento = ArmazenamentoTeste(tmp_path)
 
     resultado = anyio.run(
         ServicoTriagem(armazenamento, timeout_segundos=5).processar,

@@ -54,7 +54,6 @@ def extracao(cenario):
 @pytest.fixture
 def integracao(monkeypatch):
     monkeypatch.setenv("AGENT_MODE", "real")
-    monkeypatch.setenv("STORAGE_MODE", "oci")
     monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "30")
     for variavel, bucket in [
         ("OCI_BUCKET_RECEBIDOS", "recebidos-teste"),
@@ -105,6 +104,7 @@ def conferir_persistencia(objetos, conteudo, resultado):
     recebidos = [chave for bucket, chave in objetos if bucket == "recebidos-teste"]
     assert len(recebidos) == 1
     chave = recebidos[0]
+    assert chave.split("_", 1)[1].startswith("documento.")
     assert objetos[("recebidos-teste", chave)] == conteudo
     rota = resultado["classificacao"]
     bucket = "auditoria-teste" if rota == "ambiguidade" else "processados-teste"

@@ -6,7 +6,7 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
 
-A interface Streamlit chama a API, que executa extração com Gemini, validação, roteamento e gravação na OCI com `AGENT_MODE=real` e `STORAGE_MODE=oci`. Os três cenários foram verificados ao vivo em 12/11/2026. O envio real de alertas pertence à issue #13. A configuração e os resultados estão no [guia rápido](docs/guia-rapido.md).
+A interface Streamlit chama a API, que executa extração com Gemini, validação, roteamento e gravação na OCI com `AGENT_MODE=real`. Os três cenários foram verificados ao vivo em 12/11/2026. O envio real de alertas pertence à issue #13. A configuração e os resultados estão no [guia rápido](docs/guia-rapido.md).
 
 ## 1. Problema e objetivo
 
@@ -117,7 +117,7 @@ mediflow/
 │   ├── nodes/      # extrair.py, validar.py, decidir_rota.py
 │   ├── schemas.py  # contratos Pydantic (#1)
 │   └── rules.py    # regras de triagem (#5)
-├── storage/        # armazenamento local e nos buckets da OCI (#22)
+├── storage/        # contrato, chaves e armazenamento nos buckets OCI (#22)
 ├── alerts/         # alerta de urgência (#13)
 ├── n8n/            # workflows do n8n
 ├── data/sinteticos/# documentos fictícios de teste (#4)
@@ -125,7 +125,7 @@ mediflow/
 └── tests/
 ```
 
-**Pré-requisitos para testar a API:** Python 3.11+. O modo padrão (`mock`) funciona sem chave Gemini e sem conta OCI. Execute os comandos na raiz do projeto:
+**Pré-requisitos para testar a API:** Python 3.11+ e credenciais OCI. O modo `real` também exige uma chave Gemini. Execute os comandos na raiz do projeto:
 
 ```bash
 python3 -m venv .venv
@@ -137,7 +137,6 @@ Se ainda não existir um `.env`, copie `.env.example` para `.env`. Para a demons
 
 ```dotenv
 AGENT_MODE=real
-STORAGE_MODE=oci
 API_URL=http://127.0.0.1:8000
 AGENT_TIMEOUT_SECONDS=30
 ```
@@ -157,14 +156,14 @@ Em outro terminal, com o ambiente ativado:
 python -m streamlit run app/app.py
 
 # Testes automatizados: usam diretórios temporários, sem gravar nos buckets locais.
-AGENT_MODE=mock STORAGE_MODE=local python -m pytest -q
+AGENT_MODE=mock python -m pytest -q
 ```
 
 Nunca commite o `.env`. Veja o `CONTRIBUTING.md` para o fluxo de branch e PR.
 
 ## 7. Cenários da demo
 
-Três documentos fictícios, em `data/sinteticos/`, cobrem as três rotas. Envie-os pela interface com `AGENT_MODE=real` e `STORAGE_MODE=oci`. O original vai para `mediflow-recebidos` e o resultado é salvo no bucket e prefixo da rota. Na ambiguidade, uma cópia do original acompanha o resultado para revisão humana.
+Três documentos fictícios, em `data/sinteticos/`, cobrem as três rotas. Envie-os pela interface com `AGENT_MODE=real`. O original vai para `mediflow-recebidos` e o resultado é salvo no bucket e prefixo da rota. As chaves combinam UUID e nome do arquivo. Na ambiguidade, uma cópia do original acompanha o resultado para revisão humana.
 
 **Cenário 1: rotina** (`doc_teste_001_rotina.json`)
 

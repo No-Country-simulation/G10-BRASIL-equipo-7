@@ -15,7 +15,6 @@ Se o `.env` ainda não existir, copie `.env.example`. Para executar com Gemini e
 
 ```dotenv
 AGENT_MODE=real
-STORAGE_MODE=oci
 API_URL=http://127.0.0.1:8000
 AGENT_TIMEOUT_SECONDS=30
 GEMINI_API_KEYS=chave1,chave2
@@ -76,6 +75,8 @@ No terminal da API, procure `Documento recebido` para relacionar `documento_id` 
 
 A chave já inclui a extensão original. No console OCI, abra o resultado e compare o JSON com **Ver JSON de triagem**. Baixe o original de `mediflow-recebidos` e compare os hashes dos dois arquivos, substituindo o caminho de download abaixo.
 
+Novos uploads usam `<uuid>_<nome-do-arquivo>`, por exemplo `<uuid>_doc_teste_001_rotina.json`. O resultado correspondente recebe o sufixo `.triagem.json`. Espaços, acentos e caracteres especiais do nome são normalizados, e caminhos enviados pelo cliente são removidos.
+
 ```bash
 sha256sum data/sinteticos/doc_teste_001_rotina.json /caminho/arquivo-baixado.json
 ```
@@ -102,12 +103,12 @@ Os três documentos foram enviados pelo Streamlit à API com Gemini e OCI reais.
 | `DOC-TESTE-002` | `urgencia` | `0.9375` | `6fecc86f61194340b2e0145c525b1cb6.json` |
 | `DOC-TESTE-003` | `ambiguidade` | `0.255` | `13b600c17bfc4f9fbb1d4bc712ed1cfd.json` |
 
-Os scores acima registram essa execução. Para repetir a demonstração, use a configuração da seção 1. A execução registrada usou essas variáveis nos processos da API e da interface.
+Os scores e as chaves acima registram a execução de 12/11, anterior ao formato que inclui o nome do arquivo. Para repetir a demonstração, use a configuração da seção 1.
 
 Para conferir a regressão automatizada com respostas controladas do Gemini e cliente S3 de teste, execute na raiz do projeto com a `.venv` ativada.
 
 ```bash
-AGENT_MODE=mock STORAGE_MODE=local python -m pytest -q
+AGENT_MODE=mock python -m pytest -q
 ```
 
 A suíte completa passou com **625 testes** nesta verificação.

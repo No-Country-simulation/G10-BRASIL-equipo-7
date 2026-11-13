@@ -1,6 +1,6 @@
 """Armazenamento nos buckets do OCI Object Storage, pela API compatível com S3.
 
-Os destinos são os mesmos do armazenamento local; o primeiro segmento vira o bucket:
+O primeiro segmento do destino identifica o bucket:
 
 - mediflow-recebidos: <chave>
 - mediflow-processados: rotina/<chave>.triagem.json e urgencia/<chave>.triagem.json
@@ -12,7 +12,7 @@ import logging
 import os
 from pathlib import Path
 
-from storage.local_storage import DESTINOS, serializar_resultado, validar_chave
+from storage.base import DESTINOS, serializar_resultado, validar_chave
 
 
 log = logging.getLogger(__name__)
@@ -47,9 +47,8 @@ def criar_cliente():
     if not endpoint:
         faltando.append("OCI_NAMESPACE (ou OCI_S3_ENDPOINT)")
     if faltando:
-        raise RuntimeError("STORAGE_MODE=oci exige no .env: " + ", ".join(faltando))
+        raise RuntimeError("O armazenamento OCI exige no .env: " + ", ".join(faltando))
 
-    # Importação tardia: o modo local continua funcionando sem o boto3 instalado.
     import boto3
     from botocore.config import Config
 
