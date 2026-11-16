@@ -12,7 +12,15 @@ import logging
 import os
 from pathlib import Path
 
-from storage.base import DESTINOS, serializar_resultado, validar_chave
+import json
+
+from botocore.exceptions import ClientError
+
+from storage.base import (
+    DESTINOS, PASTA_AUDITORIA, SUFIXO_DECISAO, SUFIXO_TRIAGEM,
+    DecisaoJaRegistrada, DocumentoNaoEncontrado,
+    serializar_decisao, serializar_resultado, validar_chave,
+)
 
 
 log = logging.getLogger(__name__)
@@ -116,6 +124,70 @@ class ArmazenamentoObjectStorage:
 
     def salvar_original_ambiguo(self, chave: str, conteudo: bytes) -> None:
         self._enviar_original(DESTINOS["ambiguidade"], chave, conteudo)
+
+
+    # --- Auditoria humana (#30) -------------------------------------------------
+
+    def _bucket_auditoria(self) -> str:
+        return self.buckets["auditoria-humana"]
+
+    def _ler(self, objeto: str) -> bytes | None:
+        """Conteúdo do objeto no bucket de auditoria, ou None se não existir."""
+        try:
+            resposta = self.cliente.get_object(
+                Bucket=self._bucket_auditoria(), Key=objeto
+            )
+        except ClientError as erro:
+            codigo = str(erro.response.get("Error", {}).get("Code", ""))
+            if codigo in {"NoSuchKey", "404", "NotFound"}:
+                return None
+            log.error("Falha ao ler %s: %s", objeto, codigo)
+            raise
+        return resposta["Body"].read()
+
+    def listar_ambiguidades(self) -> dict[str, bool]:
+        prefixo = f"{PASTA_AUDITORIA}/"
+        objetos: set[str] = set()
+        token = None
+        while True:
+            argumentos = {"Bucket": self._bucket_auditoria(), "Prefix": prefixo}
+            if token:
+                argumentos["ContinuationToken"] = token
+            pagina = self.cliente.list_objects_v2(**argumentos)
+            objetos.update(item["Key"] for item in pagina.get("Contents", []))
+            if not pagina.get("IsTruncated"):
+                break
+            token = pagina.get("NextContinuationToken")
+        chaves = {}
+        for objeto in objetos:
+            nome = objeto[len(prefixo):]
+            if nome.endswith(SUFIXO_TRIAGEM):
+                chave = nome[: -len(SUFIXO_TRIAGEM)]
+                chaves[chave] = f"{prefixo}{chave}{SUFIXO_DECISAO}" in objetos
+        return chaves
+
+    def ler_resultado(self, chave: str) -> dict:
+        validar_chave(chave)
+        conteudo = self._ler(f"{PASTA_AUDITORIA}/{chave}{SUFIXO_TRIAGEM}")
+        if conteudo is None:
+            raise DocumentoNaoEncontrado(chave)
+        return json.loads(conteudo)
+
+    def ler_decisao(self, chave: str) -> dict | None:
+        validar_chave(chave)
+        conteudo = self._ler(f"{PASTA_AUDITORIA}/{chave}{SUFIXO_DECISAO}")
+        return None if conteudo is None else json.loads(conteudo)
+
+    def salvar_decisao(self, chave: str, decisao: dict) -> None:
+        validar_chave(chave)
+        # A OCI não garante gravação condicional pela API S3; a checagem prévia
+        # cobre o uso normal (um revisor por documento) e o log registra o resto.
+        if self.ler_decisao(chave) is not None:
+            raise DecisaoJaRegistrada(chave)
+        self._enviar(
+            DESTINOS["ambiguidade"], f"{chave}{SUFIXO_DECISAO}",
+            serializar_decisao(decisao), "application/json",
+        )
 
 
 @lru_cache(maxsize=1)

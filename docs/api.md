@@ -236,3 +236,27 @@ python -m pytest tests/test_api.py -q
 ```
 
 Os testes cobrem as três rotas, formatos aceitos, preservação dos arquivos, erros de entrada, repetição, timeout e falhas de armazenamento. Usam diretórios temporários e agentes de teste, sem depender de OCI, Gemini ou de um servidor iniciado manualmente. Os testes do armazenamento OCI usam um cliente simulado e não acessam a rede.
+
+## Auditoria humana (#30)
+
+Os documentos em `mediflow-auditoria-humana/ambiguidade` são revisados pelo painel Streamlit (página **Auditoria**, no menu lateral de `streamlit run app/app.py`). A decisão é gravada em `<chave>.decisao.json`, ao lado de `<chave>.triagem.json`, que nunca é alterado. Cada documento aceita uma única decisão.
+
+| Endpoint | Função |
+| --- | --- |
+| `GET /auditoria?pendentes=true` | Lista os documentos em ambiguidade. Com `pendentes=false`, inclui os já decididos. |
+| `GET /auditoria/{chave}` | Devolve o resultado da triagem e a decisão, se houver. |
+| `POST /auditoria/{chave}/decisao` | Registra a decisão. `201` em sucesso, `404` sem documento, `409` se já decidido, `422` se inválida. |
+
+Corpo do `POST`:
+
+```json
+{
+  "acao": "aprovar | corrigir | rejeitar",
+  "revisor": "Ana",
+  "observacao": "obrigatória ao rejeitar",
+  "classificacao_corrigida": "rotina | urgencia (só em corrigir)",
+  "dados_corrigidos": {"só em corrigir": "objeto JSON"}
+}
+```
+
+`corrigir` exige `classificacao_corrigida`, `dados_corrigidos` ou ambos.

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 
 from agent.schemas import ResultadoTriagem, Rota
+from api.auditoria import router as roteador_auditoria
 from api.service import ServicoTriagem
 from storage.base import Armazenamento
 from storage.oci_storage import obter_armazenamento_oci
@@ -16,6 +17,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="MediFlow")
+app.include_router(roteador_auditoria)
 
 TIPOS_POR_EXTENSAO = {
     ".pdf": "application/pdf",

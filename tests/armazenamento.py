@@ -1,8 +1,13 @@
 """Simulador de persistência em diretório temporário para os testes da API."""
 
+import json
 from pathlib import Path
 
-from storage.base import DESTINOS, serializar_resultado, validar_chave
+from storage.base import (
+    DESTINOS, SUFIXO_DECISAO, SUFIXO_TRIAGEM,
+    DecisaoJaRegistrada, DocumentoNaoEncontrado,
+    serializar_decisao, serializar_resultado, validar_chave,
+)
 
 
 class ArmazenamentoTeste:
@@ -27,3 +32,40 @@ class ArmazenamentoTeste:
 
     def salvar_original_ambiguo(self, chave: str, conteudo: bytes) -> None:
         self._salvar(DESTINOS["ambiguidade"], chave, conteudo)
+
+    # --- Auditoria humana (#30) ---
+
+    def _pasta_auditoria(self) -> Path:
+        return self.diretorio / DESTINOS["ambiguidade"]
+
+    def listar_ambiguidades(self) -> dict[str, bool]:
+        pasta = self._pasta_auditoria()
+        if not pasta.exists():
+            return {}
+        return {
+            arquivo.name[: -len(SUFIXO_TRIAGEM)]:
+                (pasta / f"{arquivo.name[: -len(SUFIXO_TRIAGEM)]}{SUFIXO_DECISAO}").exists()
+            for arquivo in pasta.iterdir()
+            if arquivo.name.endswith(SUFIXO_TRIAGEM)
+        }
+
+    def ler_resultado(self, chave: str) -> dict:
+        validar_chave(chave)
+        arquivo = self._pasta_auditoria() / f"{chave}{SUFIXO_TRIAGEM}"
+        if not arquivo.exists():
+            raise DocumentoNaoEncontrado(chave)
+        return json.loads(arquivo.read_text(encoding="utf-8"))
+
+    def ler_decisao(self, chave: str) -> dict | None:
+        validar_chave(chave)
+        arquivo = self._pasta_auditoria() / f"{chave}{SUFIXO_DECISAO}"
+        return json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else None
+
+    def salvar_decisao(self, chave: str, decisao: dict) -> None:
+        try:
+            self._salvar(
+                DESTINOS["ambiguidade"], f"{chave}{SUFIXO_DECISAO}",
+                serializar_decisao(decisao),
+            )
+        except FileExistsError as erro:
+            raise DecisaoJaRegistrada(chave) from erro

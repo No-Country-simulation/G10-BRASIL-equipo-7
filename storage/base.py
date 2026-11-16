@@ -14,6 +14,10 @@ DESTINOS = {
     "ambiguidade": Path("auditoria-humana/ambiguidade"),
 }
 EXTENSOES = {".pdf", ".png", ".jpg", ".jpeg", ".json"}
+# Painel de auditoria (#30): a decisão fica ao lado do JSON de triagem, sem sobrescrevê-lo.
+PASTA_AUDITORIA = "ambiguidade"
+SUFIXO_TRIAGEM = ".triagem.json"
+SUFIXO_DECISAO = ".decisao.json"
 
 
 def criar_chave(nome: str) -> str:
@@ -47,3 +51,35 @@ class Armazenamento(Protocol):
     def salvar_resultado(self, chave: str, resultado: dict) -> None: ...
 
     def salvar_original_ambiguo(self, chave: str, conteudo: bytes) -> None: ...
+
+
+class DocumentoNaoEncontrado(LookupError):
+    """Não há resultado de triagem para a chave na auditoria humana."""
+
+
+class DecisaoJaRegistrada(Exception):
+    """O documento já tem decisão; a decisão original nunca é sobrescrita."""
+
+
+def serializar_decisao(decisao: dict) -> bytes:
+    return json.dumps(
+        decisao, ensure_ascii=False, allow_nan=False, indent=2
+    ).encode("utf-8")
+
+
+class ArmazenamentoAuditoria(Protocol):
+    """Operações de leitura e decisão usadas pelo painel de auditoria humana."""
+
+    def listar_ambiguidades(self) -> dict[str, bool]:
+        """Chave de cada documento com triagem em ambiguidade -> já tem decisão."""
+        ...
+
+    def ler_resultado(self, chave: str) -> dict:
+        """Levanta DocumentoNaoEncontrado se a chave não existir."""
+        ...
+
+    def ler_decisao(self, chave: str) -> dict | None: ...
+
+    def salvar_decisao(self, chave: str, decisao: dict) -> None:
+        """Levanta DecisaoJaRegistrada se já houver decisão para a chave."""
+        ...
