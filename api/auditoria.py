@@ -9,7 +9,7 @@ import logging
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from storage.base import (
     ArmazenamentoAuditoria, DecisaoJaRegistrada, DocumentoNaoEncontrado,
@@ -66,6 +66,8 @@ class ItemAuditoria(BaseModel):
     score_confianca: float
     justificativa: str
     decidido: bool
+    prioridade_revisao: Literal["alta", "normal"] = "normal"
+    recebido_em: AwareDatetime | None = None
 
 
 class DetalheAuditoria(BaseModel):
@@ -97,22 +99,30 @@ def listar(
     pendentes: Annotated[bool, Query(description="Só documentos sem decisão")] = True,
 ):
     itens = []
-    for chave, decidido in sorted(armazenamento.listar_ambiguidades().items()):
+    for chave, decidido in armazenamento.listar_ambiguidades().items():
         if pendentes and decidido:
             continue
         try:
             resultado = armazenamento.ler_resultado(chave)
+            metadados = armazenamento.ler_metadados_revisao(chave)
             itens.append(ItemAuditoria(
                 chave=chave,
                 documento_id=resultado["documento_id"],
                 score_confianca=resultado["score_confianca"],
                 justificativa=resultado["justificativa"],
                 decidido=decidido,
+                prioridade_revisao=metadados.get("prioridade-revisao", "normal"),
+                recebido_em=metadados.get("recebido-em"),
             ))
         except Exception as erro:
             # Um JSON ilegível não pode esconder os demais documentos da fila.
             log.warning("Triagem ilegível na auditoria: chave=%s (%s)", chave, type(erro).__name__)
-    return itens
+    return sorted(itens, key=lambda item: (
+        item.prioridade_revisao != "alta",
+        item.recebido_em is None,
+        item.recebido_em or datetime.max.replace(tzinfo=timezone.utc),
+        item.chave,
+    ))
 
 
 @router.get("/{chave}", response_model=DetalheAuditoria)

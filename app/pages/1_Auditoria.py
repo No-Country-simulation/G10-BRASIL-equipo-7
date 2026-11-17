@@ -128,6 +128,7 @@ if not pendentes:
 
 rotulos = {
     item["chave"]: f"{item['documento_id']} · confiança {item['score_confianca']:.2f}"
+    + (" · Revisão prioritária" if item.get("prioridade_revisao") == "alta" else "")
     for item in pendentes
 }
 chave = st.selectbox("Documento", list(rotulos), format_func=rotulos.get)

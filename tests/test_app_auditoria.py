@@ -57,6 +57,26 @@ def test_mostra_documento_pendente_e_dados(tela):
     )
 
 
+def test_painel_preserva_ordem_da_api_e_destaca_prioridade(tela):
+    app, get, _ = tela
+    itens = [
+        {**ITEM, "chave": "z.pdf", "documento_id": "DOC-Z", "prioridade_revisao": "alta"},
+        {**ITEM, "chave": "a.pdf", "documento_id": "DOC-A", "prioridade_revisao": "normal"},
+    ]
+    get.side_effect = lambda url, **kw: resposta(
+        itens if url.endswith("/auditoria") else DETALHE)
+
+    botao(app, "Atualizar lista").click().run()
+
+    assert not app.exception
+    assert app.selectbox[0].options == [
+        "DOC-Z · confiança 0.40 · Revisão prioritária", "DOC-A · confiança 0.40",
+    ]
+    get.assert_any_call("http://api-teste:8000/auditoria/z.pdf", timeout=30)
+    app.selectbox[0].select("a.pdf").run()
+    get.assert_any_call("http://api-teste:8000/auditoria/a.pdf", timeout=30)
+
+
 def test_aprova_pela_tela(tela):
     app, _, post = tela
     app.text_input[0].set_value("Ana")
