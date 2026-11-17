@@ -30,10 +30,12 @@ class ClienteFalso:
     def __init__(self):
         self.objetos = {}
         self.tipos = {}
+        self.metadados = {}
 
-    def put_object(self, Bucket, Key, Body, ContentType):
+    def put_object(self, Bucket, Key, Body, ContentType, Metadata=None):
         self.objetos[(Bucket, Key)] = Body
         self.tipos[(Bucket, Key)] = ContentType
+        self.metadados[(Bucket, Key)] = dict(Metadata or {})
 
 
 @pytest.fixture(autouse=True)
@@ -166,19 +168,26 @@ def test_endpoint_e_regiao_podem_ser_substituidos(credenciais, monkeypatch):
     assert cliente.meta.region_name == "us-ashburn-1"
 
 
-def test_envio_real_do_cliente_usa_bucket_e_objeto_esperados(credenciais):
+@pytest.mark.parametrize("metadados", [None, {
+    "prioridade-revisao": "alta", "motivo-revisao": "falha_tecnica_agente",
+    "recebido-em": "2026-11-17T10:00:00+00:00",
+}])
+def test_envio_real_do_cliente_usa_bucket_e_objeto_esperados(credenciais, metadados):
     from botocore.stub import Stubber
 
     cliente = criar_cliente()
     with Stubber(cliente) as stub:
-        stub.add_response("put_object", {}, {
+        argumentos = {
             "Bucket": "mediflow-processados",
             "Key": "urgencia/abc.pdf.triagem.json",
             "Body": b'{\n  "classificacao": "urgencia"\n}',
             "ContentType": "application/json",
-        })
+        }
+        if metadados is not None:
+            argumentos["Metadata"] = metadados
+        stub.add_response("put_object", {}, argumentos)
         ArmazenamentoObjectStorage(cliente).salvar_resultado(
-            "abc.pdf", {"classificacao": "urgencia"}
+            "abc.pdf", {"classificacao": "urgencia"}, metadados
         )
         stub.assert_no_pending_responses()
 
@@ -230,7 +239,7 @@ def test_triagem_dos_documentos_de_teste_grava_nos_buckets_certos(
         app.dependency_overrides.clear()
 
     assert resposta.status_code == 200
-    assert resposta.json() == MOCKS[caso]
+    assert resposta.json() == {**MOCKS[caso], "alerta_enviado": False}
     recebidos = [objeto for b, objeto in cliente.objetos if b == "mediflow-recebidos"]
     assert len(recebidos) == 1
     chave = recebidos[0]
@@ -279,7 +288,7 @@ def test_falhas_oci_preservam_o_possivel_e_registram_apenas_gravacoes_confirmada
     caplog.set_level(logging.INFO)
 
     class ClienteComFalha(ClienteFalso):
-        def put_object(self, Bucket, Key, Body, ContentType):
+        def put_object(self, Bucket, Key, Body, ContentType, Metadata=None):
             etapa = {
                 ("mediflow-recebidos", False): "recebidos",
                 ("mediflow-processados", True): "resultado_processado",
@@ -288,7 +297,7 @@ def test_falhas_oci_preservam_o_possivel_e_registram_apenas_gravacoes_confirmada
             }[(Bucket, Key.endswith(".triagem.json"))]
             if falha in {etapa, "todos"}:
                 raise OSError("AccessDenied")
-            super().put_object(Bucket, Key, Body, ContentType)
+            super().put_object(Bucket, Key, Body, ContentType, Metadata)
 
     cliente = ClienteComFalha()
     conteudo = b'{"documento_id":"DOC-TESTE-001"}'
@@ -312,3 +321,6 @@ def test_falhas_oci_preservam_o_possivel_e_registram_apenas_gravacoes_confirmada
     assert "AccessDenied" in caplog.text
     salvos = [r for r in caplog.records if r.name == "api.service" and r.msg.startswith("Resultado salvo")]
     assert len(salvos) == (0 if falha in {"resultado_ambiguo", "todos"} else 1)
+    assert set(cliente.metadados) == set(cliente.objetos)
+    for metadados in cliente.metadados.values():
+        assert metadados.get("prioridade-revisao", "normal") == "normal"

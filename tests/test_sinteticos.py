@@ -122,7 +122,7 @@ def ambiente_demo(monkeypatch):
     objetos = {}
     s3 = Mock()
 
-    def salvar(Bucket, Key, Body, ContentType):
+    def salvar(Bucket, Key, Body, ContentType, Metadata=None):
         objetos[(Bucket, Key)] = Body
 
     s3.put_object.side_effect = salvar

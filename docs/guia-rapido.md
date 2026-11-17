@@ -59,9 +59,9 @@ Abra [http://localhost:8501](http://localhost:8501) para enviar os documentos.
 | `doc_teste_002_urgencia.json` | Pronto-Socorro | `urgencia` | `Fila_Emergencia_Medica` |
 | `doc_teste_003_ambiguidade.json` | Balcão | `ambiguidade` | `Fila_Revisao_Humana` |
 
-A interface envia o arquivo à API, que preserva o original, chama o Gemini e executa **extrair → validar → decidir rota**. Os scores variam conforme a extração. O contrato HTTP mantém os sete campos atuais, incluindo `classificacao` como rota, `destino_principal` como departamento e `alerta_enviado=false`. O envio real de alertas pertence à issue #13.
+A interface envia o arquivo à API, que preserva o original, chama o Gemini e executa **extrair → validar → decidir rota**. Os scores variam conforme a extração. O contrato HTTP tem sete campos, incluindo `classificacao` como rota e `destino_principal` como departamento. Para conectar o alerta urgente ao n8n, configure `ALERTA_WEBHOOK_URL` no `.env` e reinicie a API. `alerta_enviado=true` exige confirmação HTTP do webhook e gravação do resultado atualizado.
 
-Para testar um arquivo próprio, use PDF, PNG, JPG, JPEG ou JSON. Um arquivo JSON deve conter um objeto, como os exemplos sintéticos com `documento_texto`. Falhas técnicas recebem uma segunda tentativa e, se persistirem, retornam ambiguidade com confiança zero. O serviço tenta preservar os arquivos para revisão e registra as falhas de gravação.
+Para testar um arquivo próprio, use PDF, PNG, JPG, JPEG ou JSON. Um arquivo JSON deve conter um objeto, como os exemplos sintéticos com `documento_texto`. Falhas técnicas recebem uma segunda tentativa e, se persistirem, retornam ambiguidade com confiança zero e prioridade alta na página **Auditoria**. O serviço tenta preservar os arquivos para revisão e registra as falhas de gravação. Falhas do webhook preservam a rota urgente, com `alerta_enviado=false`.
 
 ## 4. Conferir os buckets
 

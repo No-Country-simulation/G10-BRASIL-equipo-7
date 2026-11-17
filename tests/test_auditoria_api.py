@@ -55,6 +55,39 @@ def test_lista_vazia_sem_documentos(ambiente):
     assert resposta.status_code == 200 and resposta.json() == []
 
 
+@pytest.mark.parametrize("pendentes", [True, False])
+def test_fila_ordena_prioridade_horario_e_chave_com_documentos_antigos(ambiente, pendentes):
+    client, armazenamento, _ = ambiente
+    entradas = [
+        ("a-legado.pdf", {}),
+        ("z-alta.pdf", {"prioridade-revisao": "alta", "recebido-em": "2026-11-17T11:00:00Z"}),
+        ("b-alta.pdf", {"prioridade-revisao": "alta", "recebido-em": "2026-11-17T09:00:00Z"}),
+        ("a-alta.pdf", {"prioridade-revisao": "alta", "recebido-em": "2026-11-17T06:00:00-03:00"}),
+        ("c-alta-sem-data.pdf", {"prioridade-revisao": "alta"}),
+        ("b-legado.pdf", {}),
+        ("z-normal.pdf", {"prioridade-revisao": "normal", "recebido-em": "2026-11-16T09:00:00Z"}),
+    ]
+    for chave, metadados in entradas:
+        armazenamento.salvar_resultado(chave, resultado(chave), metadados)
+    armazenamento.salvar_decisao("a-alta.pdf", {"acao": "aprovar"})
+
+    resposta = client.get("/auditoria", params={"pendentes": str(pendentes).lower()})
+
+    assert resposta.status_code == 200
+    itens = resposta.json()
+    esperados = ["b-alta.pdf", "z-alta.pdf", "c-alta-sem-data.pdf",
+                 "z-normal.pdf", "a-legado.pdf", "b-legado.pdf"]
+    if not pendentes:
+        esperados.insert(0, "a-alta.pdf")
+    assert [item["chave"] for item in itens] == esperados
+    por_chave = {item["chave"]: item for item in itens}
+    assert por_chave["z-alta.pdf"]["prioridade_revisao"] == "alta"
+    assert por_chave["z-alta.pdf"]["recebido_em"] == "2026-11-17T11:00:00Z"
+    assert por_chave["a-legado.pdf"]["prioridade_revisao"] == "normal"
+    assert por_chave["a-legado.pdf"]["recebido_em"] is None
+    assert por_chave["c-alta-sem-data.pdf"]["recebido_em"] is None
+
+
 def test_lista_ignora_triagem_ilegivel(ambiente):
     client, armazenamento, tmp_path = ambiente
     armazenamento.salvar_resultado("ok.pdf", resultado("DOC-OK"))

@@ -6,7 +6,7 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
 
-A interface Streamlit chama a API, que executa extração com Gemini, validação, roteamento e gravação na OCI com `AGENT_MODE=real`. Os três cenários foram verificados ao vivo em 12/11/2026. O envio real de alertas pertence à issue #13. A configuração e os resultados estão no [guia rápido](docs/guia-rapido.md).
+A interface Streamlit chama a API, que executa extração com Gemini, validação, roteamento e gravação na OCI com `AGENT_MODE=real`. Configure `ALERTA_WEBHOOK_URL` para conectar os alertas urgentes ao n8n. A configuração e os resultados estão no [guia rápido](docs/guia-rapido.md).
 
 ## 1. Problema e objetivo
 
@@ -66,7 +66,7 @@ flowchart TD
 | **Decidir Rota** | Aplica as regras de triagem e escolhe uma das 3 rotas. |
 | **Bucket `processados`** | Pastas `rotina` (confiança alta) e `urgencia` (crítico). |
 | **Bucket `auditoria-humana`** | Pasta `ambiguidade`, para revisão humana. |
-| **Alerta de urgência** | A integração #13 prevê webhook/n8n após gravar em `urgencia`, com tratamento de falhas de envio. |
+| **Alerta de urgência** | Envia o JSON ao webhook/n8n após gravar em `urgencia`. Falhas do alerta preservam a triagem urgente. |
 | **Fase 2 (opcional)** | Agente de consulta e chat com acesso somente leitura aos buckets. |
 
 ## 3. Fluxo e as 3 rotas
@@ -79,8 +79,10 @@ flowchart TD
 | Rota | Quando | Destino | Efeito extra |
 |---|---|---|---|
 | **Rotina** | Documento completo, sem gravidade, confiança alta | `processados/rotina` | Nenhum |
-| **Urgência** | Achado crítico no conteúdo | `processados/urgencia` | Gera a notificação no grafo, com envio previsto na #13 |
+| **Urgência** | Achado crítico no conteúdo | `processados/urgencia` | Gera a notificação e aciona o webhook configurado após salvar a triagem |
 | **Ambiguidade** | Dados ilegíveis, ausentes ou confiança baixa | `auditoria-humana/ambiguidade` | Revisão humana |
+
+Falhas técnicas persistentes após duas tentativas recebem revisão prioritária no topo da auditoria. A API registra prioridade e horário nos metadados OCI. O comportamento do retry, da fila e do alerta está no [guia da API](docs/api.md#falha-persistente-e-prioridade-de-revisão-33).
 
 ## 4. Regras de triagem
 
@@ -173,7 +175,7 @@ Três documentos fictícios, em `data/sinteticos/`, cobrem as três rotas. Envie
 **Cenário 2: urgência** (`doc_teste_002_urgencia.json`)
 
 - Entrada: laudo de tomografia com achado compatível com hemorragia subaracnoidea aguda e recomendação de avaliação neurocirúrgica imediata.
-- Resultado esperado na execução real com os buckets oficiais é rota **urgência** e resultado em `mediflow-processados/urgencia`. O envio de alertas pertence à issue #13.
+- Resultado esperado na execução real com os buckets oficiais é rota **urgência** e resultado em `mediflow-processados/urgencia`. O serviço aciona o alerta quando `ALERTA_WEBHOOK_URL` estiver configurada.
 
 **Cenário 3: ambiguidade** (`doc_teste_003_ambiguidade.json`)
 

@@ -90,15 +90,19 @@ class ArmazenamentoObjectStorage:
             for nome, (variavel, padrao) in BUCKETS.items()
         }
 
-    def _enviar(self, destino: Path, chave: str, conteudo: bytes, tipo: str) -> None:
+    def _enviar(
+        self, destino: Path, chave: str, conteudo: bytes, tipo: str,
+        metadados: dict[str, str] | None = None,
+    ) -> None:
         validar_chave(chave)
         nome_bucket, *prefixo = destino.parts
         bucket = self.buckets[nome_bucket]
         objeto = "/".join([*prefixo, chave])
+        argumentos = dict(Bucket=bucket, Key=objeto, Body=conteudo, ContentType=tipo)
+        if metadados is not None:
+            argumentos["Metadata"] = metadados
         try:
-            self.cliente.put_object(
-                Bucket=bucket, Key=objeto, Body=conteudo, ContentType=tipo
-            )
+            self.cliente.put_object(**argumentos)
         except Exception as erro:
             # O serviço registra só o tipo da falha; o código de erro da OCI
             # (AccessDenied, NoSuchBucket...) fica aqui, sem dados do documento.
@@ -113,13 +117,16 @@ class ArmazenamentoObjectStorage:
     def salvar_original(self, chave: str, conteudo: bytes) -> None:
         self._enviar_original(Path("recebidos"), chave, conteudo)
 
-    def salvar_resultado(self, chave: str, resultado: dict) -> None:
+    def salvar_resultado(
+        self, chave: str, resultado: dict, metadados: dict[str, str] | None = None,
+    ) -> None:
         conteudo = serializar_resultado(resultado)
         self._enviar(
             DESTINOS[resultado["classificacao"]],
             f"{chave}.triagem.json",
             conteudo,
             "application/json",
+            metadados,
         )
 
     def salvar_original_ambiguo(self, chave: str, conteudo: bytes) -> None:
@@ -177,6 +184,19 @@ class ArmazenamentoObjectStorage:
         validar_chave(chave)
         conteudo = self._ler(f"{PASTA_AUDITORIA}/{chave}{SUFIXO_DECISAO}")
         return None if conteudo is None else json.loads(conteudo)
+
+    def ler_metadados_revisao(self, chave: str) -> dict[str, str]:
+        validar_chave(chave)
+        try:
+            resposta = self.cliente.head_object(
+                Bucket=self._bucket_auditoria(),
+                Key=f"{PASTA_AUDITORIA}/{chave}{SUFIXO_TRIAGEM}",
+            )
+        except ClientError as erro:
+            if str(erro.response.get("Error", {}).get("Code")) in {"NoSuchKey", "404", "NotFound"}:
+                raise DocumentoNaoEncontrado(chave) from erro
+            raise
+        return {"prioridade-revisao": "normal", **resposta.get("Metadata", {})}
 
     def salvar_decisao(self, chave: str, decisao: dict) -> None:
         validar_chave(chave)
