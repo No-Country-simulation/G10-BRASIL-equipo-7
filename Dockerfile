@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN useradd --create-home mediflow
 
+COPY pyproject.toml .
 COPY api/ api/
 COPY app/ app/
 COPY agent/ agent/
