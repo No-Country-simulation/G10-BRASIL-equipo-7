@@ -13,7 +13,7 @@ import pytest
 
 from agent.adapters import AgenteSimulado, MOCKS
 from api.main import app, obter_servico
-from api.service import ServicoTriagem
+from api.service import FalhaPersistenteAgente, ServicoTriagem
 from storage.base import DESTINOS
 from tests.armazenamento import ArmazenamentoTeste
 
@@ -125,6 +125,7 @@ def test_json_invalido_preserva_original_e_responde_ambiguidade(ambiente, conteu
 
     resultado = conferir_falha(resposta)
     assert "JSON" in resultado["justificativa"]
+    assert "prioritária" not in resultado["justificativa"]
     conferir_gravacao(armazenamento, conteudo, resultado)
 
 
@@ -223,6 +224,7 @@ def test_falha_persistente_do_agente_tem_duas_tentativas(ambiente, falha):
     resultado = conferir_falha(enviar(client))
 
     assert agente.chamadas == 2
+    assert "revisão humana prioritária" in resultado["justificativa"]
     conferir_gravacao(armazenamento, b"%PDF-1.4\n%%EOF", resultado)
 
 
@@ -243,6 +245,20 @@ def test_saida_invalida_pode_recuperar_na_segunda_tentativa(ambiente):
     assert chamadas == [resposta.json()["documento_id"]] * 2
 
 
+@pytest.mark.anyio
+async def test_falha_persistente_identifica_causa_original(tmp_path):
+    erro = RuntimeError("Modelo indisponível")
+    agente = Mock()
+    agente.triar.side_effect = erro
+    servico = ServicoTriagem(ArmazenamentoTeste(tmp_path), lambda: agente)
+
+    with pytest.raises(FalhaPersistenteAgente) as falha:
+        await servico._triar({"documento_id": "DOC-1"}, None)
+
+    assert agente.triar.call_count == 2
+    assert falha.value.__cause__ is erro
+
+
 def test_falha_ao_salvar_original_tenta_preservar_na_ambiguidade(ambiente, monkeypatch):
     client, armazenamento, servico = ambiente
 
@@ -254,6 +270,7 @@ def test_falha_ao_salvar_original_tenta_preservar_na_ambiguidade(ambiente, monke
     resultado = conferir_falha(enviar(client))
 
     assert "recebidos" in resultado["justificativa"]
+    assert "prioritária" not in resultado["justificativa"]
     pasta = armazenamento.diretorio / "auditoria-humana/ambiguidade"
     originais = list(pasta.glob("*.pdf"))
     assert len(originais) == 1
@@ -273,6 +290,7 @@ def test_falha_ao_salvar_resultado_vai_para_ambiguidade(ambiente, monkeypatch):
     monkeypatch.setattr(armazenamento, "salvar_resultado", falhar_so_em_processados)
     resposta = enviar(client, caso_mock="rotina")
     resultado = conferir_falha(resposta)
+    assert "prioritária" not in resultado["justificativa"]
     conferir_gravacao(armazenamento, b"%PDF-1.4\n%%EOF", resultado)
 
 
@@ -474,6 +492,7 @@ async def test_timeout_nao_bloqueia_saude_e_documento_vai_para_ambiguidade(tmp_p
                     assert not respostas
 
         resultado = conferir_falha(respostas[0])
+        assert "revisão humana prioritária" in resultado["justificativa"]
         assert len(chamadas) == 2
         assert chamadas == [resultado["documento_id"]] * 2
         conferir_gravacao(armazenamento, b"original", resultado)

@@ -145,6 +145,7 @@ def test_endpoint_grafo_e_oci_nas_tres_rotas(integracao, cenario, destino, score
     }
     if cenario == "ambiguidade":
         assert resultado["dados_extraidos"]["paciente"] is None
+        assert "prioritária" not in resultado["justificativa"]
     else:
         crm = {"rotina": "123456-SP", "urgencia": "654321-SP"}[cenario]
         assert resultado["dados_extraidos"]["medico_responsavel"]["crm"] == crm
@@ -161,7 +162,7 @@ def test_endpoint_grafo_e_oci_nas_tres_rotas(integracao, cenario, destino, score
     assert s3.put_object.call_count == len(objetos)
 
 
-@pytest.mark.parametrize("falha", ["", "{", "{}", RuntimeError("Gemini indisponível")])
+@pytest.mark.parametrize("falha", [None, "", "  ", "{", "{}", RuntimeError("Gemini indisponível")])
 @pytest.mark.parametrize("recupera", [True, False])
 def test_falha_tecnica_do_gemini_tem_segunda_tentativa(integracao, falha, recupera):
     http, gemini, _, objetos = integracao
@@ -176,9 +177,33 @@ def test_falha_tecnica_do_gemini_tem_segunda_tentativa(integracao, falha, recupe
     assert gemini.generate_content.call_count == 2
     assert resultado["classificacao"] == ("rotina" if recupera else "ambiguidade")
     assert resultado["score_confianca"] == pytest.approx(0.927 if recupera else 0)
+    assert resultado["documento_id"] == json.loads(conteudo)["documento_id"]
+    assert resultado["alerta_enviado"] is False
     if not recupera:
         assert resultado["dados_extraidos"] == {}
         assert resultado["destino_principal"] == "Fila_Revisao_Humana"
+        assert "após duas tentativas" in resultado["justificativa"]
+        assert "revisão humana prioritária" in resultado["justificativa"]
+    conferir_persistencia(objetos, conteudo, resultado)
+
+
+@pytest.mark.parametrize("cenario,rota", [("rotina", "ambiguidade"), ("urgencia", "urgencia")])
+def test_extracao_valida_com_campo_ilegivel_segue_regras_clinicas(integracao, cenario, rota):
+    http, gemini, _, objetos = integracao
+    dados = extracao(cenario)
+    dados["legibilidade"] = 0.2
+    dados["dados_extraidos"]["paciente"]["nome"] = None
+    dados["evidencias"]["campos_ilegiveis"] = ["dados_extraidos.paciente.nome"]
+    gemini.generate_content.return_value = SimpleNamespace(text=json.dumps(dados))
+
+    resposta, conteudo = enviar(http, cenario)
+
+    assert resposta.status_code == 200
+    resultado = resposta.json()
+    assert resultado["classificacao"] == rota
+    assert resultado["dados_extraidos"]["paciente"]["nome"] is None
+    assert "prioritária" not in resultado["justificativa"]
+    gemini.generate_content.assert_called_once()
     conferir_persistencia(objetos, conteudo, resultado)
 
 

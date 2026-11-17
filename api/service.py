@@ -18,6 +18,10 @@ from storage.base import Armazenamento, criar_chave
 log = logging.getLogger(__name__)
 
 
+class FalhaPersistenteAgente(RuntimeError):
+    """O agente esgotou as duas tentativas e exige revisão prioritária."""
+
+
 class ServicoTriagem:
     def __init__(
         self,
@@ -67,7 +71,7 @@ class ServicoTriagem:
                     tentativa + 1, documento["documento_id"], type(erro).__name__,
                 )
                 if tentativa == 1:
-                    raise
+                    raise FalhaPersistenteAgente("O agente falhou nas duas tentativas.") from erro
 
     async def _salvar_ambiguidade(
         self,
@@ -152,6 +156,13 @@ class ServicoTriagem:
             )
             return resultado
         except Exception as erro:
+            revisao = "O documento requer revisão humana."
+            if isinstance(erro, FalhaPersistenteAgente):
+                motivo = "Falha técnica do agente após duas tentativas."
+                revisao = (
+                    "O documento requer revisão humana prioritária, "
+                    "pois pode conter uma urgência."
+                )
             log.error(
                 "Falha no processamento: chave=%s documento_id=%s motivo=%s (%s)",
                 chave, documento_id, motivo, type(erro).__name__,
@@ -161,7 +172,7 @@ class ServicoTriagem:
                 classificacao="ambiguidade",
                 destino_principal=carregar_configuracao().roteamento.destino_ambiguidade,
                 score_confianca=0,
-                justificativa=f"{motivo} O documento requer revisão humana.",
+                justificativa=f"{motivo} {revisao}",
                 alerta_enviado=False,
                 dados_extraidos={},
             )
