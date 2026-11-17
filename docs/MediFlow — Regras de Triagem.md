@@ -37,9 +37,9 @@ Sem urgência, estas travas mandam o documento para `/ambiguidade` mesmo com sco
 - medicamento com grupo indefinido, desconhecido ou sem classificação;
 - prioridade `Revisão Humana` ou outro impedimento registrado pela validação, incluindo médico responsável indefinido.
 
-Se o documento for urgente, a rota continua `/urgencia`, mesmo com score baixo ou qualquer trava, e `requer_auditoria_humana` fica `true`. O nó gera `notificacao_gerada` com `canal="Alerta_Plantao_Medico"` e uma mensagem; nas demais rotas, o campo é `null`. O envio real pertence à integração de alertas (#13). A revisão é da equipe de auditoria e não deve atrasar o encaminhamento urgente.
+Se o documento for urgente, a rota continua `/urgencia`, mesmo com score baixo ou qualquer trava, e `requer_auditoria_humana` fica `true`. O nó gera `notificacao_gerada` com `canal="Alerta_Plantao_Medico"` e uma mensagem. Nas demais rotas, o campo é `null`. Após salvar a triagem urgente, o serviço chama o webhook configurado em `ALERTA_WEBHOOK_URL`. Falhas de envio preservam a rota urgente. A revisão é da equipe de auditoria e deve permitir o encaminhamento urgente imediato.
 
-Falhas técnicas, como resposta vazia, JSON inválido ou estado incompatível, propagam exceção no grafo. A segunda tentativa e a resposta de ambiguidade em falha persistente são responsabilidades do serviço da API, não do nó de roteamento.
+Falhas técnicas, como resposta vazia, JSON inválido ou estado incompatível, propagam exceção no grafo. O serviço da API executa uma segunda tentativa. Falha persistente retorna ambiguidade com confiança zero e revisão prioritária, pois pode esconder uma urgência. A prioridade alta e o horário UTC ficam nos metadados do resultado na OCI. A auditoria ordena prioridade, horário e chave. Extração válida com ilegibilidade segue as regras clínicas e recebe prioridade normal de revisão.
 
 ## Score de confiança e limiar
 

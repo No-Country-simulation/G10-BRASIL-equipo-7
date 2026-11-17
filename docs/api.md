@@ -29,8 +29,9 @@ API_URL=http://localhost:8000
 | `AGENT_MODE` | `mock` seleciona a simulação. `real` executa o grafo e converte o resultado validado para os sete campos do contrato HTTP atual. |
 | `AGENT_TIMEOUT_SECONDS` | Tempo máximo por tentativa do agente. O padrão é 30 segundos, com uma repetição em falha técnica. |
 | `API_URL` | Endereço para o cliente que chama a API; não configura a porta do servidor. |
+| `ALERTA_WEBHOOK_URL` | Webhook que recebe o JSON da triagem urgente após sua gravação, com timeout de 10 segundos. |
 
-A API carrega o `.env` da raiz e prioriza variáveis já exportadas no terminal. Reinicie o servidor após alterar essas configurações. As variáveis `OCI_*` configuram o armazenamento obrigatório nos buckets. O envio de alertas pertence à integração #13.
+A API carrega o `.env` da raiz e prioriza variáveis já exportadas no terminal. Reinicie o servidor após alterar essas configurações. As variáveis `OCI_*` configuram o armazenamento obrigatório nos buckets. `ALERTA_WEBHOOK_URL` conecta o serviço ao webhook de alertas da integração #13.
 
 Inicie e mantenha este terminal aberto:
 
@@ -168,9 +169,9 @@ O upload de JSON também é `multipart/form-data`, com o campo `arquivo`. Enviar
 
 O original precisa ser salvo e o JSON precisa ser interpretável antes da seleção do cenário. Informar `caso_mock` não faz um JSON malformado ser aceito como triagem normal.
 
-O mock não analisa gravidade, não calcula confiança a partir do documento e não chama o Gemini. Na resposta simulada de urgência, `alerta_enviado=true` é apenas parte do exemplo: nenhum alerta real é enviado. A integração de alertas continua na issue #13.
+O mock fornece classificações, scores e dados extraídos fixos. O serviço preenche `alerta_enviado` conforme a confirmação do webhook e sua persistência. A configuração `ALERTA_WEBHOOK_URL` também se aplica a `AGENT_MODE=mock`.
 
-`AGENT_MODE=real` chama `agent.graph.triar`, executando extração pelo Gemini, validação e roteamento. `AgenteReal` valida o estado clínico, preserva o ID e converte o resultado para `ResultadoTriagem`. `destino_principal` contém o departamento ou fila. `alerta_enviado` fica `false` enquanto o envio de alertas segue na #13. Configure as credenciais OCI conforme o [guia rápido](guia-rapido.md).
+`AGENT_MODE=real` chama `agent.graph.triar`, executando extração pelo Gemini, validação e roteamento. `AgenteReal` valida o estado clínico, preserva o ID e converte o resultado para `ResultadoTriagem`. `destino_principal` contém o departamento ou fila. Configure as credenciais OCI conforme o [guia rápido](guia-rapido.md).
 
 ## 5. Onde conferir os arquivos
 
@@ -211,6 +212,20 @@ Os erros de validação HTTP retornam `detail`; eles não são JSONs de triagem.
 
 Uma falha técnica na chamada do agente tem uma segunda tentativa. Com o padrão de 30 segundos por tentativa, o agente pode consumir cerca de 60 segundos antes da ambiguidade, além do tempo de upload e armazenamento. A espera não bloqueia `/saude` nem as demais requisições. O timeout interrompe a espera pela thread, não a execução da função síncrona; uma resposta atrasada não grava nem substitui a triagem já devolvida pela API.
 
+### Falha persistente e prioridade de revisão (#33)
+
+Resposta vazia, JSON inválido, estrutura incompatível, exceção do modelo ou timeout nas duas tentativas geram HTTP 200 com `classificacao="ambiguidade"`, `destino_principal="Fila_Revisao_Humana"`, confiança zero, dados extraídos vazios e alerta falso. A justificativa pede revisão humana prioritária, pois o documento pode conter uma urgência.
+
+O serviço tenta preservar o original e o resultado em `auditoria-humana/ambiguidade`. O resultado recebe os metadados OCI `prioridade-revisao="alta"`, `motivo-revisao="falha_tecnica_agente"` e `recebido-em` com o horário UTC de entrada. Corpo JSON e metadados são gravados na mesma operação. Falhas de gravação ficam nos logs.
+
+Documentos com extração válida e campos críticos ilegíveis seguem as regras clínicas, com prioridade de revisão `normal`. A precedência de urgência continua valendo quando há evidência urgente. Ambiguidades causadas por JSON de entrada malformado, configuração inválida do agente ou falha de gravação recebem prioridade `normal`.
+
+### Falha do alerta
+
+Após salvar uma triagem urgente, o serviço envia seu JSON ao webhook configurado em uma thread, com timeout de 10 segundos. O campo `alerta_enviado` passa a `true` após a confirmação HTTP do webhook e a gravação do resultado atualizado. Esse campo registra o aceite do webhook. A entrega de e-mail ou Slack pode ser conferida no histórico do n8n.
+
+Webhook ausente, timeout, conexão recusada, erro HTTP ou exceção preservam a rota urgente e deixam `alerta_enviado=false`. Se o webhook confirmar e a atualização do armazenamento falhar, a API devolve o resultado inicialmente confirmado com alerta falso. Os logs distinguem `Alerta confirmado pelo webhook` de `Falha ao registrar alerta confirmado`. O envio ocorre após as tentativas do agente e a persistência inicial.
+
 ## 7. Executar a interface
 
 A tela Streamlit envia `arquivo` e `canal_origem` por multipart para `POST /triagem` no endereço definido por `API_URL`. Ela consome os sete campos da resposta e mostra rota, departamento, dados extraídos, confiança e justificativa. Com a API iniciada, execute em outro terminal com a `.venv` ativada.
@@ -237,6 +252,14 @@ python -m pytest tests/test_api.py -q
 
 Os testes cobrem as três rotas, formatos aceitos, preservação dos arquivos, erros de entrada, repetição, timeout e falhas de armazenamento. Usam diretórios temporários e agentes de teste, sem depender de OCI, Gemini ou de um servidor iniciado manualmente. Os testes do armazenamento OCI usam um cliente simulado e não acessam a rede.
 
+```bash
+python -m pytest tests/test_fluxo_integrado.py tests/test_api.py \
+  tests/test_auditoria_api.py tests/test_app_auditoria.py \
+  tests/test_storage_oci.py tests/test_auditoria_oci.py -q
+```
+
+Os serviços externos usam respostas controladas. A fixture de testes mantém o webhook vazio, e cada teste de envio configura seu próprio substituto.
+
 ## Auditoria humana (#30)
 
 Os documentos em `mediflow-auditoria-humana/ambiguidade` são revisados pelo painel Streamlit (página **Auditoria**, no menu lateral de `streamlit run app/app.py`). A decisão é gravada em `<chave>.decisao.json`, ao lado de `<chave>.triagem.json`, que nunca é alterado. Cada documento aceita uma única decisão.
@@ -246,6 +269,14 @@ Os documentos em `mediflow-auditoria-humana/ambiguidade` são revisados pelo pai
 | `GET /auditoria?pendentes=true` | Lista os documentos em ambiguidade. Com `pendentes=false`, inclui os já decididos. |
 | `GET /auditoria/{chave}` | Devolve o resultado da triagem e a decisão, se houver. |
 | `POST /auditoria/{chave}/decisao` | Registra a decisão. `201` em sucesso, `404` sem documento, `409` se já decidido, `422` se inválida. |
+
+A listagem inclui `prioridade_revisao` (`alta` ou `normal`) e `recebido_em`. A ordem é prioridade alta primeiro, horário de recebimento crescente e chave como desempate. Dentro de cada prioridade, documentos antigos sem horário aparecem depois dos datados. Objetos sem metadados recebem prioridade normal e `recebido_em=null`. O seletor do painel segue essa ordem e destaca **Revisão prioritária**.
+
+No Postman, envie **GET** `http://127.0.0.1:8000/auditoria?pendentes=true`. Pelo terminal, execute o comando abaixo.
+
+```bash
+curl -sS 'http://127.0.0.1:8000/auditoria?pendentes=true'
+```
 
 Corpo do `POST`:
 

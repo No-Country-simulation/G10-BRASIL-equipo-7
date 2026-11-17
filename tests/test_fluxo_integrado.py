@@ -12,6 +12,7 @@ import requests
 
 from api.main import app
 from storage.oci_storage import obter_armazenamento_oci
+from tests.test_auditoria_oci import ClienteFalso
 
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -63,16 +64,10 @@ def integracao(monkeypatch):
         ("OCI_BUCKET_AUDITORIA", "auditoria-teste"),
     ]:
         monkeypatch.setenv(variavel, bucket)
-    objetos = {}
-    metadados = {}
-    s3 = Mock()
-
-    def salvar(Bucket, Key, Body, ContentType, Metadata=None):
-        objetos[(Bucket, Key)] = Body
-        metadados[(Bucket, Key)] = dict(Metadata or {})
-
-    s3.put_object.side_effect = salvar
-    s3.head_object.side_effect = lambda Bucket, Key: {"Metadata": metadados[(Bucket, Key)]}
+    cliente = ClienteFalso(tamanho_pagina=2)
+    objetos = cliente.objetos
+    s3 = Mock(wraps=cliente)
+    s3.put_object.side_effect = cliente.put_object
     monkeypatch.setattr("storage.oci_storage.criar_cliente", lambda: s3)
     gemini = Mock()
     gemini.generate_content.return_value = SimpleNamespace(text=json.dumps(extracao("rotina")))
@@ -356,3 +351,44 @@ def test_webhook_ausente_preserva_urgencia_sem_fazer_requisicao(integracao, monk
     assert resposta.json()["alerta_enviado"] is False
     post.assert_not_called()
     conferir_persistencia(objetos, conteudo, resposta.json())
+
+
+@pytest.mark.parametrize("falha", [
+    RuntimeError("Modelo indisponível"), SimpleNamespace(text=""), SimpleNamespace(text="{"),
+])
+def test_falha_do_modelo_chega_prioritaria_a_auditoria(integracao, falha):
+    http, gemini, s3, objetos = integracao
+    gemini.generate_content.side_effect = [
+        SimpleNamespace(text=json.dumps(extracao("ambiguidade"))), falha, falha,
+    ]
+    ilegivel, original_ilegivel = enviar(http, "ambiguidade")
+    falhou, original_falhou = enviar(http, "rotina")
+    assert ilegivel.status_code == falhou.status_code == 200
+    assert gemini.generate_content.call_count == 3
+    armazenamento = obter_armazenamento_oci()
+    armazenamento.salvar_resultado("legado.pdf", {**ilegivel.json(), "documento_id": "LEGADO"})
+
+    fila = http.get("/auditoria")
+
+    assert fila.status_code == 200
+    itens = fila.json()
+    assert [item["documento_id"] for item in itens] == [
+        falhou.json()["documento_id"], ilegivel.json()["documento_id"], "LEGADO",
+    ]
+    assert [item["prioridade_revisao"] for item in itens] == ["alta", "normal", "normal"]
+    assert itens[0]["recebido_em"] and itens[1]["recebido_em"]
+    assert itens[2]["recebido_em"] is None
+    por_id = {item["documento_id"]: item["chave"] for item in itens}
+    for resposta, original in [(ilegivel, original_ilegivel), (falhou, original_falhou)]:
+        chave = por_id[resposta.json()["documento_id"]]
+        assert objetos[("recebidos-teste", chave)] == original
+        assert objetos[("auditoria-teste", f"ambiguidade/{chave}")] == original
+        detalhe = http.get(f"/auditoria/{chave}")
+        assert detalhe.status_code == 200
+        assert detalhe.json()["resultado"] == resposta.json()
+    assert s3.list_objects_v2.call_count > 1
+    chave_prioritaria = itens[0]["chave"]
+    assert http.post(f"/auditoria/{chave_prioritaria}/decisao", json={
+        "acao": "aprovar", "revisor": "Equipe de teste",
+    }).status_code == 201
+    assert [item["prioridade_revisao"] for item in http.get("/auditoria").json()] == ["normal", "normal"]
