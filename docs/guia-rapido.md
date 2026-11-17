@@ -1,6 +1,30 @@
 # Guia rápido de demonstração do MediFlow
 
-Execute os comandos na raiz do projeto, em Linux/macOS.
+Execute os comandos na raiz do projeto. A execução com Docker atende Linux, macOS e Windows com Docker Engine e o plugin Docker Compose, ou Docker Desktop. Os comandos de ambiente virtual abaixo usam Linux/macOS.
+
+## Executar com Docker
+
+Com o Docker em execução, copie `.env.example` para `.env` se necessário e preencha as variáveis da seção 1. Para triagem com Gemini, configure `AGENT_MODE=real` e as credenciais Gemini e OCI. Depois execute um comando para construir as imagens e iniciar API e interface.
+
+```bash
+docker compose up --build
+```
+
+Abra a interface em [http://localhost:8501](http://localhost:8501), o Swagger em [http://localhost:8000/docs](http://localhost:8000/docs) e a saúde da API em [http://localhost:8000/saude](http://localhost:8000/saude). As portas 8000 e 8501 devem estar livres. A interface inicia após a API responder ao healthcheck.
+
+O Compose injeta o `.env` como variáveis de ambiente da API. A interface usa `API_URL=http://api:8000` pela rede interna do Docker. O `.dockerignore` exclui arquivos de ambiente e credenciais do contexto de construção. As imagens incluem o código e a configuração de triagem.
+
+Para acompanhar os registros em outro terminal, execute o comando abaixo.
+
+```bash
+docker compose logs -f api interface
+```
+
+Após alterar o `.env`, execute `docker compose up --build` novamente para aplicar a configuração. Para encerrar os serviços e remover os contêineres e a rede criados pelo Compose, use o comando abaixo.
+
+```bash
+docker compose down
+```
 
 ## 1. Preparar o ambiente
 
