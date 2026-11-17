@@ -10,7 +10,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from agent.rules import DESTINOS
-from agent.schemas import ResultadoTriagem, Rota
+from agent.schemas import ExtracaoDocumento, ResultadoAgente, ResultadoTriagem, Rota
 
 
 # Valores do mock atual da interface, mantidos até a conclusão do contrato #1.
@@ -109,19 +109,45 @@ class AgenteReal:
         from agent.graph import triar
 
         documento_id = identificar_documento(documento)
-        resultado = ResultadoTriagem.model_validate(
-            triar({**documento, "documento_id": documento_id})
-        )
+        estado = triar({**documento, "documento_id": documento_id})
+        resultado = estado_para_resultado(estado, documento_id)
         if resultado.documento_id != documento_id:
             raise ValueError("O agente retornou um documento_id diferente do recebido")
         return resultado
 
 
 def obter_agente() -> Agente:
-    """Seleciona o adaptador; o grafo real ainda depende das issues #7 e #8."""
+    """Seleciona o adaptador simulado ou o grafo real pela configuração."""
     modo = os.getenv("AGENT_MODE", "mock")
     if modo == "mock":
         return AgenteSimulado()
     if modo == "real":
         return AgenteReal()
     raise ValueError("AGENT_MODE deve ser mock ou real")
+
+
+def estado_para_resultado(estado: dict, documento_id: str) -> ResultadoTriagem:
+    """Valida o estado clínico do grafo e converte para a resposta HTTP atual."""
+    if "decisao_roteamento" not in estado:
+        return ResultadoTriagem.model_validate(estado).model_copy(update={"alerta_enviado": False})
+    if estado["documento"]["documento_id"] != documento_id:
+        raise ValueError("O grafo retornou um documento_id diferente do recebido")
+    extracao = ExtracaoDocumento.model_validate(estado["validacao"]["dados_validados"])
+    resultado = ResultadoAgente.model_validate({
+        "status": "processado",
+        "documento_id": documento_id,
+        "classificacao": extracao.classificacao.model_dump(mode="json"),
+        "dados_extraidos": extracao.dados_extraidos.model_dump(mode="json"),
+        "score_confianca": estado["score_confianca"],
+        "decisao_roteamento": estado["decisao_roteamento"],
+    })
+    decisao = resultado.decisao_roteamento
+    return ResultadoTriagem(
+        documento_id=documento_id,
+        classificacao=decisao.rota,
+        destino_principal=decisao.destino_principal,
+        score_confianca=resultado.score_confianca,
+        justificativa=decisao.justificativa_roteamento,
+        alerta_enviado=False,  # a notificação é gerada, mas o envio é a issue #13
+        dados_extraidos=resultado.dados_extraidos.model_dump(mode="json"),
+    )

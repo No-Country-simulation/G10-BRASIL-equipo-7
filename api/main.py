@@ -1,18 +1,27 @@
 """API FastAPI (#9). Rodar: uvicorn api.main:app --reload"""
+import logging
 from pathlib import Path
+import tomllib
 from typing import Annotated
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 
 from agent.schemas import ResultadoTriagem, Rota
+from api.auditoria import router as roteador_auditoria
 from api.service import ServicoTriagem
-from storage.local_storage import Armazenamento, ArmazenamentoLocal
+from storage.base import Armazenamento
+from storage.oci_storage import obter_armazenamento_oci
 
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="MediFlow")
+with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as arquivo:
+    versao = tomllib.load(arquivo)["project"]["version"]
+
+app = FastAPI(title="MediFlow", version=versao)
+app.include_router(roteador_auditoria)
 
 TIPOS_POR_EXTENSAO = {
     ".pdf": "application/pdf",
@@ -24,7 +33,7 @@ TIPOS_POR_EXTENSAO = {
 
 
 def obter_armazenamento() -> Armazenamento:
-    return ArmazenamentoLocal()
+    return obter_armazenamento_oci()
 
 
 def obter_servico(

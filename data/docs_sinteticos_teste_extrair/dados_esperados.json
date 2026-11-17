@@ -1,0 +1,194 @@
+[
+  {
+    "arquivo": "doc_01_antonio_ferreira.pdf",
+    "formato": "pdf",
+    "prioridade_esperada": "Urgente",
+    "rota_esperada": "urgencia",
+    "tipo_documento": "Laudo de Exame de Imagem",
+    "paciente_nome": "Antônio Carlos Ferreira",
+    "paciente_idade": 61,
+    "medico_nome": "Dr. Fábio Henrique Lacerda",
+    "crm_como_aparece_no_documento": "CRM-GO 38214",
+    "crm_normalizado": "38214-GO",
+    "diagnostico": "Tromboembolismo pulmonar agudo",
+    "cid": "I26.9",
+    "prescricao": [
+      "Enoxaparina 1 mg/kg por via subcutânea a cada 12 horas",
+      "Oxigênio suplementar se SpO2 < 92%"
+    ],
+    "sinal_de_urgencia": "Achado crítico (TEP agudo) com sobrecarga de VD; comunicado ao Pronto-Socorro"
+  },
+  {
+    "arquivo": "doc_02_maria_souza.png",
+    "formato": "png",
+    "prioridade_esperada": "Rotina",
+    "rota_esperada": "rotina",
+    "tipo_documento": "Receituário Médico",
+    "paciente_nome": "Maria das Graças Souza",
+    "paciente_idade": 54,
+    "medico_nome": "Dr. Rogério Alves Pimentel",
+    "crm_como_aparece_no_documento": "CRM-MG 52431",
+    "crm_normalizado": "52431-MG",
+    "diagnostico": "Hipertensão arterial essencial",
+    "cid": "I10",
+    "prescricao": [
+      "Losartana potássica 50 mg - 1 comprimido por via oral pela manhã, uso contínuo",
+      "Hidroclorotiazida 25 mg - 1 comprimido por via oral pela manhã"
+    ],
+    "sinal_de_urgencia": null
+  },
+  {
+    "arquivo": "doc_03_roberto_dias.csv",
+    "formato": "csv",
+    "prioridade_esperada": "Rotina",
+    "rota_esperada": "rotina",
+    "tipo_documento": "Laudo de Exame Laboratorial",
+    "paciente_nome": "Roberto Alencar Dias",
+    "paciente_idade": 45,
+    "medico_nome": "Dr. Ivan Moreira Sampaio",
+    "crm_como_aparece_no_documento": "CRM-DF 15390",
+    "crm_normalizado": "15390-DF",
+    "diagnostico": "Hipercolesterolemia pura",
+    "cid": "E78.0",
+    "prescricao": [
+      "Sinvastatina 20 mg - 1 comprimido à noite",
+      "Dieta hipogordurosa e atividade física"
+    ],
+    "sinal_de_urgencia": null
+  },
+  {
+    "arquivo": "doc_04_helena_costa.docx",
+    "formato": "docx",
+    "prioridade_esperada": "Urgente",
+    "rota_esperada": "urgencia",
+    "tipo_documento": "Laudo de Exame de Imagem",
+    "paciente_nome": "Helena Maria Costa",
+    "paciente_idade": 69,
+    "medico_nome": "Dr. Eduardo Brandão Pires",
+    "crm_como_aparece_no_documento": "CRM 72.455/SP",
+    "crm_normalizado": "72455-SP",
+    "diagnostico": "Acidente vascular cerebral isquêmico agudo (território da ACM esquerda)",
+    "cid": "I63.9",
+    "prescricao": [
+      "Alteplase 0,9 mg/kg por via endovenosa (máx. 90 mg), conforme protocolo de trombólise",
+      "Manter pressão arterial abaixo de 185/110 mmHg"
+    ],
+    "sinal_de_urgencia": "AVC isquêmico agudo dentro da janela terapêutica (início dos sintomas há 1h40)"
+  },
+  {
+    "arquivo": "doc_05_marcos_teixeira.xls",
+    "formato": "xls",
+    "prioridade_esperada": "Urgente",
+    "rota_esperada": "urgencia",
+    "tipo_documento": "Laudo de Exame Laboratorial",
+    "paciente_nome": "Marcos Vinícius Teixeira",
+    "paciente_idade": 58,
+    "medico_nome": "Dr. Paulo Renan Aguiar",
+    "crm_como_aparece_no_documento": "CRM/RJ 90113",
+    "crm_normalizado": "90113-RJ",
+    "diagnostico": "Infarto agudo do miocárdio",
+    "cid": "I21.9",
+    "prescricao": [
+      "AAS 300 mg por via oral, dose única",
+      "Clopidogrel 300 mg por via oral, dose única",
+      "Encaminhar imediatamente à hemodinâmica"
+    ],
+    "sinal_de_urgencia": "Troponina I 12,40 ng/mL (referência < 0,04) - valor crítico"
+  },
+  {
+    "arquivo": "doc_06_pedro_lima.jpg",
+    "formato": "jpg",
+    "prioridade_esperada": "Rotina",
+    "rota_esperada": "rotina",
+    "tipo_documento": "Receituário Médico",
+    "paciente_nome": "Pedro Henrique Lima",
+    "paciente_idade": 47,
+    "medico_nome": "Dra. Fernanda Moura Castilho",
+    "crm_como_aparece_no_documento": "CRM 44120/MG",
+    "crm_normalizado": "44120-MG",
+    "diagnostico": "Diabetes mellitus tipo 2 sem complicações",
+    "cid": "E11.9",
+    "prescricao": [
+      "Metformina 850 mg - 1 comprimido após o almoço e 1 após o jantar"
+    ],
+    "sinal_de_urgencia": null
+  },
+  {
+    "arquivo": "doc_07_luciana_matos.xlsx",
+    "formato": "xlsx",
+    "prioridade_esperada": "Rotina",
+    "rota_esperada": "rotina",
+    "tipo_documento": "Guia de Solicitação de Procedimento",
+    "paciente_nome": "Luciana Ribeiro Matos",
+    "paciente_idade": 39,
+    "medico_nome": "Dr. Gustavo Neves Falcão",
+    "crm_como_aparece_no_documento": "CRM-PR 27866",
+    "crm_normalizado": "27866-PR",
+    "diagnostico": "Dor articular (joelho direito)",
+    "cid": "M25.5",
+    "prescricao": [
+      "Ressonância magnética de joelho direito",
+      "Ibuprofeno 600 mg por via oral a cada 8 horas, por 5 dias"
+    ],
+    "sinal_de_urgencia": null
+  },
+  {
+    "arquivo": "doc_08_juliana_medeiros.png",
+    "formato": "png",
+    "prioridade_esperada": "Urgente",
+    "rota_esperada": "urgencia",
+    "tipo_documento": "Prescrição Médica",
+    "paciente_nome": "Juliana Prado Medeiros",
+    "paciente_idade": 27,
+    "medico_nome": "Dra. Tatiane Bueno Salles",
+    "crm_como_aparece_no_documento": "CRM-SP 201378",
+    "crm_normalizado": "201378-SP",
+    "diagnostico": "Choque anafilático por reação alimentar",
+    "cid": "T78.0",
+    "prescricao": [
+      "Adrenalina 1 mg/mL - 0,3 mg por via intramuscular, imediato (repetir em 5 a 15 min se necessário)",
+      "Hidrocortisona 200 mg por via endovenosa",
+      "Difenidramina 50 mg por via endovenosa"
+    ],
+    "sinal_de_urgencia": "Anafilaxia com prescrição de adrenalina; marcada como administrar imediatamente"
+  },
+  {
+    "arquivo": "doc_09_ana_nogueira.json",
+    "formato": "json",
+    "prioridade_esperada": "Rotina",
+    "rota_esperada": "rotina",
+    "tipo_documento": "Atestado Médico",
+    "paciente_nome": "Ana Beatriz Nogueira",
+    "paciente_idade": 31,
+    "medico_nome": "Dr. Marcelo Tavares Duarte",
+    "crm_como_aparece_no_documento": "CRM-SP 118742",
+    "crm_normalizado": "118742-SP",
+    "diagnostico": "Resfriado comum",
+    "cid": "J00",
+    "prescricao": [
+      "Paracetamol 750 mg por via oral a cada 6 horas se dor ou febre, por 3 dias",
+      "Hidratação e repouso"
+    ],
+    "sinal_de_urgencia": null
+  },
+  {
+    "arquivo": "doc_10_raimundo_alves.pdf",
+    "formato": "pdf",
+    "prioridade_esperada": "Urgente",
+    "rota_esperada": "urgencia",
+    "tipo_documento": "Relatório de Internação",
+    "paciente_nome": "Raimundo Nonato Alves",
+    "paciente_idade": 74,
+    "medico_nome": "Dra. Camila Torres Beltrão",
+    "crm_como_aparece_no_documento": "CRM-MG 61.907",
+    "crm_normalizado": "61907-MG",
+    "diagnostico": "Sepse de foco pulmonar com choque séptico",
+    "cid": "A41.9",
+    "prescricao": [
+      "Ceftriaxona 2 g por via endovenosa a cada 24 horas",
+      "Noradrenalina 0,1 mcg/kg/min por via endovenosa contínua",
+      "Reposição volêmica com cristaloide 30 mL/kg"
+    ],
+    "sinal_de_urgencia": "Choque séptico: lactato 4,8 mmol/L, PAM 58 mmHg, instabilidade hemodinâmica"
+  }
+]

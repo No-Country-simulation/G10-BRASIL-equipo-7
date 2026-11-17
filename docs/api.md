@@ -1,6 +1,8 @@
 # API MediFlow: execução e testes manuais
 
-A API recebe um arquivo por requisição, salva seu original, chama o agente e devolve o JSON de triagem na mesma resposta. O modo padrão usa simulação e armazenamento local; não exige Gemini nem OCI.
+A API recebe um arquivo por requisição, salva seu original na OCI, chama o agente e devolve o JSON de triagem na mesma resposta. Configure as credenciais OCI para iniciar os uploads. `AGENT_MODE=real` usa o Gemini para a triagem.
+
+Para executar a demonstração com Gemini e buckets OCI reais, siga o [guia rápido](guia-rapido.md), que inclui a configuração, os dois terminais e os resultados verificados da task #28.
 
 ## 1. Preparar e iniciar
 
@@ -18,19 +20,18 @@ Se ainda não houver `.env`, copie `.env.example` para `.env` pelo editor. Se j�
 
 ```dotenv
 AGENT_MODE=mock
-STORAGE_LOCAL_DIR=.local/storage
 AGENT_TIMEOUT_SECONDS=30
 API_URL=http://localhost:8000
 ```
 
 | Variável | Função |
 | --- | --- |
-| `AGENT_MODE` | `mock` seleciona a simulação; `real` chama o grafo LangGraph, ainda pendente de implementação. |
-| `STORAGE_LOCAL_DIR` | Diretório dos buckets simulados. O caminho relativo parte do diretório onde o servidor é iniciado. |
+| `AGENT_MODE` | `mock` seleciona a simulação. `real` executa o grafo e converte o resultado validado para os sete campos do contrato HTTP atual. |
 | `AGENT_TIMEOUT_SECONDS` | Tempo máximo por tentativa do agente. O padrão é 30 segundos, com uma repetição em falha técnica. |
 | `API_URL` | Endereço para o cliente que chama a API; não configura a porta do servidor. |
+| `ALERTA_WEBHOOK_URL` | Webhook que recebe o JSON da triagem urgente após sua gravação, com timeout de 10 segundos. |
 
-A API carrega o `.env` da raiz sem substituir variáveis já exportadas no terminal. Reinicie o servidor após alterar essas configurações. As variáveis OCI e `ALERTA_WEBHOOK_URL` ainda não ativam essas integrações na API atual.
+A API carrega o `.env` da raiz e prioriza variáveis já exportadas no terminal. Reinicie o servidor após alterar essas configurações. As variáveis `OCI_*` configuram o armazenamento obrigatório nos buckets. `ALERTA_WEBHOOK_URL` conecta o serviço ao webhook de alertas da integração #13.
 
 Inicie e mantenha este terminal aberto:
 
@@ -168,32 +169,34 @@ O upload de JSON também é `multipart/form-data`, com o campo `arquivo`. Enviar
 
 O original precisa ser salvo e o JSON precisa ser interpretável antes da seleção do cenário. Informar `caso_mock` não faz um JSON malformado ser aceito como triagem normal.
 
-O mock não analisa gravidade, não calcula confiança a partir do documento e não chama o Gemini. Na resposta simulada de urgência, `alerta_enviado=true` é apenas parte do exemplo: nenhum alerta real é enviado. A integração de alertas continua na issue #13.
+O mock fornece classificações, scores e dados extraídos fixos. O serviço preenche `alerta_enviado` conforme a confirmação do webhook e sua persistência. A configuração `ALERTA_WEBHOOK_URL` também se aplica a `AGENT_MODE=mock`.
 
-Para usar o agente real no futuro, configure `AGENT_MODE=real` e reinicie o servidor. Esse modo já chama `agent.graph.triar` e exige o mesmo contrato de resposta, mas o grafo e seus nós ainda precisam ser concluídos. Ativá-lo agora pode resultar em ambiguidade por falha técnica. O armazenamento continua local; trocar o agente não ativa OCI.
+`AGENT_MODE=real` chama `agent.graph.triar`, executando extração pelo Gemini, validação e roteamento. `AgenteReal` valida o estado clínico, preserva o ID e converte o resultado para `ResultadoTriagem`. `destino_principal` contém o departamento ou fila. Configure as credenciais OCI conforme o [guia rápido](guia-rapido.md).
 
 ## 5. Onde conferir os arquivos
 
-Com a configuração padrão, os buckets são diretórios dentro do projeto:
+Os arquivos são gravados nos três buckets OCI, pela API compatível com S3 e Force Path Style. Cada upload recebe uma chave com um UUID completo e o nome do arquivo, como `<uuid>_exame.pdf`. O nome é normalizado para remover caminhos, converter espaços em `_` e substituir caracteres especiais. A extensão é preservada em minúsculas e o nome base tem limite de 120 caracteres.
 
-```text
-.local/storage/
-├── recebidos/
-│   └── <chave>.pdf
-├── processados/
-│   ├── rotina/
-│   │   └── <chave>.pdf.triagem.json
-│   └── urgencia/
-│       └── <chave>.pdf.triagem.json
-└── auditoria-humana/
-    └── ambiguidade/
-        ├── <chave>.pdf
-        └── <chave>.pdf.triagem.json
+O mesmo identificador relaciona o original, sua triagem e a cópia para revisão. Enviar novamente um arquivo gera outro UUID. O `documento_id` permanece disponível no JSON de triagem e nos logs.
+
+| Bucket | Objetos |
+| --- | --- |
+| `mediflow-recebidos` | `<uuid>_exame.pdf` |
+| `mediflow-processados` | `rotina/<uuid>_exame.pdf.triagem.json` ou `urgencia/<uuid>_exame.pdf.triagem.json` |
+| `mediflow-auditoria-humana` | `ambiguidade/<uuid>_exame.pdf` e `ambiguidade/<uuid>_exame.pdf.triagem.json` |
+
+O original preserva os bytes enviados, e o resultado contém o JSON devolvido pela API. Na ambiguidade, o serviço tenta guardar também uma cópia do original para revisão. As falhas de gravação são registradas nos logs. Os objetos de uploads anteriores podem ser consultados por suas chaves existentes.
+
+Preencha no `.env`, sem commitar os valores:
+
+```dotenv
+OCI_NAMESPACE=<namespace do tenancy>
+OCI_REGION=sa-saopaulo-1
+OCI_S3_ACCESS_KEY=<Access Key da Customer Secret Key>
+OCI_S3_SECRET_KEY=<Secret Key da Customer Secret Key>
 ```
 
-Cada upload recebe uma chave aleatória, mantendo a extensão do arquivo, por exemplo `a1b2...pdf`. O nome original e o `documento_id` não são usados como caminho. Reenviar o mesmo nome ou ID gera outro arquivo, sem sobrescrever o anterior. As pastas são criadas conforme os uploads; a árvore mostra os destinos possíveis.
-
-O arquivo em `recebidos` mantém os bytes originais. O arquivo `.triagem.json` contém a mesma resposta devolvida pela API. Na ambiguidade, também se tenta preservar uma cópia do original junto do resultado. Se o armazenamento falhar, a API registra o problema e responde sem garantir que os arquivos tenham sido gravados. `.local/storage` está ignorado no Git.
+O endpoint é montado como `https://<namespace>.compat.objectstorage.<região>.oraclecloud.com`; para usar outro, informe `OCI_S3_ENDPOINT`. Os nomes dos buckets podem ser trocados por `OCI_BUCKET_RECEBIDOS`, `OCI_BUCKET_PROCESSADOS` e `OCI_BUCKET_AUDITORIA`. Se faltar alguma variável, o upload responde `500` e o terminal do servidor informa qual. Reinicie o servidor e envie os três documentos de `data/sinteticos/` (seção 3): cada original deve aparecer em `mediflow-recebidos` e cada triagem no bucket e prefixo da sua rota. Se a OCI recusar uma gravação, a resposta é a ambiguidade por falha de armazenamento e o terminal registra o bucket, o objeto e o código de erro (`AccessDenied`, `NoSuchBucket`, `SignatureDoesNotMatch`).
 
 ## 6. Erros e tempo de resposta
 
@@ -203,52 +206,42 @@ O arquivo em `recebidos` mantém os bytes originais. O arquivo `.triagem.json` c
 | `400` | Arquivo vazio. |
 | `415` | Extensão não aceita ou MIME incompatível. |
 | `422` | Falta o campo `arquivo`, a requisição está fora do formato esperado ou `caso_mock` é inválido. |
+| `500` | Configuração OCI incompleta. O terminal do servidor informa a variável. |
 
 Os erros de validação HTTP retornam `detail`; eles não são JSONs de triagem. JSON malformado, exceção do agente, saída inválida e falha de armazenamento retornam o contrato de triagem com ambiguidade, confiança zero, alerta falso e dados extraídos vazios. Nos erros de upload acima, o processamento não inicia e nenhum original é salvo.
 
 Uma falha técnica na chamada do agente tem uma segunda tentativa. Com o padrão de 30 segundos por tentativa, o agente pode consumir cerca de 60 segundos antes da ambiguidade, além do tempo de upload e armazenamento. A espera não bloqueia `/saude` nem as demais requisições. O timeout interrompe a espera pela thread, não a execução da função síncrona; uma resposta atrasada não grava nem substitui a triagem já devolvida pela API.
 
-## 7. Conectar a interface
+### Falha persistente e prioridade de revisão (#33)
 
-A tela Streamlit ainda usa sua função `triar` local. Para passar a chamar a API, substitua essa função pelo exemplo abaixo e mantenha o restante da renderização, que já consome os sete campos da resposta:
+Resposta vazia, JSON inválido, estrutura incompatível, exceção do modelo ou timeout nas duas tentativas geram HTTP 200 com `classificacao="ambiguidade"`, `destino_principal="Fila_Revisao_Humana"`, confiança zero, dados extraídos vazios e alerta falso. A justificativa pede revisão humana prioritária, pois o documento pode conter uma urgência.
 
-```python
-import os
+O serviço tenta preservar o original e o resultado em `auditoria-humana/ambiguidade`. O resultado recebe os metadados OCI `prioridade-revisao="alta"`, `motivo-revisao="falha_tecnica_agente"` e `recebido-em` com o horário UTC de entrada. Corpo JSON e metadados são gravados na mesma operação. Falhas de gravação ficam nos logs.
 
-from dotenv import load_dotenv
-import requests
+Documentos com extração válida e campos críticos ilegíveis seguem as regras clínicas, com prioridade de revisão `normal`. A precedência de urgência continua valendo quando há evidência urgente. Ambiguidades causadas por JSON de entrada malformado, configuração inválida do agente ou falha de gravação recebem prioridade `normal`.
 
-load_dotenv()
+### Falha do alerta
 
+Após salvar uma triagem urgente, o serviço envia seu JSON ao webhook configurado em uma thread, com timeout de 10 segundos. O campo `alerta_enviado` passa a `true` após a confirmação HTTP do webhook e a gravação do resultado atualizado. Esse campo registra o aceite do webhook. A entrega de e-mail ou Slack pode ser conferida no histórico do n8n.
 
-def triar(arquivo, canal, caso_mock=None):
-    dados = {"canal_origem": canal}
-    if caso_mock is not None:
-        dados["caso_mock"] = caso_mock
-    resposta = requests.post(
-        f"{os.getenv('API_URL', 'http://localhost:8000').rstrip('/')}/triagem",
-        files={
-            "arquivo": (
-                arquivo.name,
-                arquivo.getvalue(),
-                arquivo.type or "application/octet-stream",
-            )
-        },
-        data=dados,
-        timeout=75,
-    )
-    resposta.raise_for_status()
-    return resposta.json()
+Webhook ausente, timeout, conexão recusada, erro HTTP ou exceção preservam a rota urgente e deixam `alerta_enviado=false`. Se o webhook confirmar e a atualização do armazenamento falhar, a API devolve o resultado inicialmente confirmado com alerta falso. Os logs distinguem `Alerta confirmado pelo webhook` de `Falha ao registrar alerta confirmado`. O envio ocorre após as tentativas do agente e a persistência inicial.
+
+## 7. Executar a interface
+
+A tela Streamlit envia `arquivo` e `canal_origem` por multipart para `POST /triagem` no endereço definido por `API_URL`. Ela consome os sete campos da resposta e mostra rota, departamento, dados extraídos, confiança e justificativa. Com a API iniciada, execute em outro terminal com a `.venv` ativada.
+
+```bash
+python -m streamlit run app/app.py
 ```
 
-O timeout do cliente deve acomodar as duas tentativas do servidor; se aumentar `AGENT_TIMEOUT_SECONDS`, ajuste-o também. Trate `requests.RequestException` na interface para mostrar falhas de conexão e erros HTTP. Uma resposta HTTP 200 com ambiguidade é um resultado de triagem e segue para a renderização normal.
+Abra <http://localhost:8501>. A tela aceita PDF, PNG, JPG, JPEG e JSON. O timeout HTTP atual é de 75 segundos, contemplando as duas tentativas de 30 segundos do agente e uma margem para comunicação. Se aumentar `AGENT_TIMEOUT_SECONDS`, ajuste também `TIMEOUT_SEGUNDOS` na interface. Falhas de conexão, timeout e erros HTTP aparecem na tela. Uma resposta HTTP 200 com ambiguidade segue para a renderização do resultado.
 
 ## 8. Testes automatizados
 
 Com o ambiente ativado, na raiz do projeto:
 
 ```bash
-python -m pytest -q
+AGENT_MODE=mock python -m pytest -q
 ```
 
 Para executar apenas os testes do endpoint:
@@ -257,4 +250,44 @@ Para executar apenas os testes do endpoint:
 python -m pytest tests/test_api.py -q
 ```
 
-Os testes cobrem as três rotas, formatos aceitos, preservação dos arquivos, erros de entrada, repetição, timeout e falhas de armazenamento. Usam diretórios temporários e agentes de teste, sem depender de OCI, Gemini ou de um servidor iniciado manualmente.
+Os testes cobrem as três rotas, formatos aceitos, preservação dos arquivos, erros de entrada, repetição, timeout e falhas de armazenamento. Usam diretórios temporários e agentes de teste, sem depender de OCI, Gemini ou de um servidor iniciado manualmente. Os testes do armazenamento OCI usam um cliente simulado e não acessam a rede.
+
+```bash
+python -m pytest tests/test_fluxo_integrado.py tests/test_api.py \
+  tests/test_auditoria_api.py tests/test_app_auditoria.py \
+  tests/test_storage_oci.py tests/test_auditoria_oci.py -q
+```
+
+Os serviços externos usam respostas controladas. A fixture de testes mantém o webhook vazio, e cada teste de envio configura seu próprio substituto.
+
+## Auditoria humana (#30)
+
+Os documentos em `mediflow-auditoria-humana/ambiguidade` são revisados pelo painel Streamlit (página **Auditoria**, no menu lateral de `streamlit run app/app.py`). A decisão é gravada em `<chave>.decisao.json`, ao lado de `<chave>.triagem.json`, que nunca é alterado. Cada documento aceita uma única decisão.
+
+| Endpoint | Função |
+| --- | --- |
+| `GET /auditoria?pendentes=true` | Lista os documentos em ambiguidade. Com `pendentes=false`, inclui os já decididos. |
+| `GET /auditoria/{chave}` | Devolve o resultado da triagem e a decisão, se houver. |
+| `POST /auditoria/{chave}/decisao` | Registra a decisão. `201` em sucesso, `404` sem documento, `409` se já decidido, `422` se inválida. |
+
+A listagem inclui `prioridade_revisao` (`alta` ou `normal`) e `recebido_em`. A ordem é prioridade alta primeiro, horário de recebimento crescente e chave como desempate. Dentro de cada prioridade, documentos antigos sem horário aparecem depois dos datados. Objetos sem metadados recebem prioridade normal e `recebido_em=null`. O seletor do painel segue essa ordem e destaca **Revisão prioritária**.
+
+No Postman, envie **GET** `http://127.0.0.1:8000/auditoria?pendentes=true`. Pelo terminal, execute o comando abaixo.
+
+```bash
+curl -sS 'http://127.0.0.1:8000/auditoria?pendentes=true'
+```
+
+Corpo do `POST`:
+
+```json
+{
+  "acao": "aprovar | corrigir | rejeitar",
+  "revisor": "Ana",
+  "observacao": "obrigatória ao rejeitar",
+  "classificacao_corrigida": "rotina | urgencia (só em corrigir)",
+  "dados_corrigidos": {"só em corrigir": "objeto JSON"}
+}
+```
+
+`corrigir` exige `classificacao_corrigida`, `dados_corrigidos` ou ambos.

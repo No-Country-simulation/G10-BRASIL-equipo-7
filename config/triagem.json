@@ -1,0 +1,60 @@
+{
+  "roteamento": {
+    "departamentos_por_categoria": {
+      "Receituário Médico": "Farmacia_Hospitalar",
+      "Laudo de Exame de Imagem": "Prontuario_Eletronico",
+      "Laudo de Exame Laboratorial": "Prontuario_Eletronico",
+      "Guia de Solicitação de Procedimento": "Auditoria_Autorizacoes",
+      "Relatório de Alta/Internação": "Prontuario_Eletronico",
+      "Atestado Médico": "Prontuario_Eletronico"
+    },
+    "destino_urgencia": "Fila_Emergencia_Medica",
+    "destino_ambiguidade": "Fila_Revisao_Humana",
+    "expressoes_urgencia": ["urgente", "emergência", "correlação clínica urgente"],
+    "achados_criticos": ["TEP agudo", "tromboembolismo pulmonar agudo", "hemorragia", "AVC", "pneumotórax"],
+    "origens_relevantes": ["Pronto_Socorro", "UTI"],
+    "grupos_alta_vigilancia": ["anticoagulante", "insulina", "opioide", "quimioterapico"]
+  },
+  "pesos": {
+    "C": 0.30,
+    "P": 0.30,
+    "K": 0.25,
+    "L": 0.15
+  },
+  "limiar_confianca": 0.85,
+  "penalidade_consistencia": 0.25,
+  "confianca_minima_classificacao": 0.70,
+  "referencias_cid": {},
+  "campos_esperados": {
+    "Receituário Médico": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.medico_responsavel.crm",
+      "dados_extraidos.medicamentos.*.nome",
+      "dados_extraidos.medicamentos.*.dosagem"
+    ],
+    "Laudo de Exame de Imagem": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.exame_realizado",
+      "evidencias.conclusao"
+    ],
+    "Laudo de Exame Laboratorial": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.exame_realizado",
+      "evidencias.conclusao"
+    ],
+    "Guia de Solicitação de Procedimento": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.medico_responsavel.crm",
+      "evidencias.procedimento"
+    ],
+    "Relatório de Alta/Internação": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.diagnostico_principal"
+    ],
+    "Atestado Médico": [
+      "dados_extraidos.paciente.nome",
+      "dados_extraidos.medico_responsavel.crm",
+      "evidencias.dias_afastamento"
+    ]
+  }
+}

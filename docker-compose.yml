@@ -1,0 +1,36 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/saude', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  interface:
+    build: .
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - app/app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "127.0.0.1:8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy

@@ -6,7 +6,7 @@ python-multipart
 pydantic
 langgraph
 google-genai
-oci
+boto3>=1.36
 python-dotenv
 requests
 pytest

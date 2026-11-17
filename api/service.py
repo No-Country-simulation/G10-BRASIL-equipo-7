@@ -1,6 +1,7 @@
 """Orquestra o armazenamento e a triagem, sem depender da camada HTTP."""
 
 from copy import deepcopy
+from datetime import datetime, timezone
 import json
 import logging
 import math
@@ -10,12 +11,17 @@ from collections.abc import Callable
 from anyio import fail_after, to_thread
 
 from agent.adapters import Agente, identificar_documento, obter_agente
-from agent.rules import DESTINOS
+from agent.config import carregar_configuracao
 from agent.schemas import ResultadoTriagem, Rota
-from storage.local_storage import Armazenamento, criar_chave
+from alerts.urgencia import enviar_alerta
+from storage.base import Armazenamento, criar_chave
 
 
 log = logging.getLogger(__name__)
+
+
+class FalhaPersistenteAgente(RuntimeError):
+    """O agente esgotou as duas tentativas e exige revisão prioritária."""
 
 
 class ServicoTriagem:
@@ -67,7 +73,7 @@ class ServicoTriagem:
                     tentativa + 1, documento["documento_id"], type(erro).__name__,
                 )
                 if tentativa == 1:
-                    raise
+                    raise FalhaPersistenteAgente("O agente falhou nas duas tentativas.") from erro
 
     async def _salvar_ambiguidade(
         self,
@@ -75,6 +81,7 @@ class ServicoTriagem:
         conteudo: bytes,
         resultado: ResultadoTriagem,
         original_salvo: bool,
+        metadados: dict[str, str],
     ) -> None:
         if not original_salvo:
             try:
@@ -89,13 +96,44 @@ class ServicoTriagem:
         # Tenta registrar a revisão mesmo que não tenha conseguido copiar o original.
         try:
             await to_thread.run_sync(
-                self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json")
+                self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json"), metadados
+            )
+            log.info(
+                "Resultado salvo: documento_id=%s chave=%s rota=%s",
+                resultado.documento_id, chave, resultado.classificacao,
             )
         except Exception as erro:
             log.error(
                 "Falha ao registrar resultado na ambiguidade: chave=%s (%s)",
                 chave, type(erro).__name__,
             )
+
+    async def _enviar_alerta(
+        self, chave: str, resultado: ResultadoTriagem, metadados: dict[str, str],
+    ) -> ResultadoTriagem:
+        try:
+            enviado = await to_thread.run_sync(enviar_alerta, resultado.model_dump(mode="json"))
+        except Exception as erro:
+            log.error("Falha no envio do alerta: chave=%s (%s)", chave, type(erro).__name__)
+            return resultado
+        if not enviado:
+            return resultado
+        log.info(
+            "Alerta confirmado pelo webhook: documento_id=%s chave=%s",
+            resultado.documento_id, chave,
+        )
+        atualizado = resultado.model_copy(update={"alerta_enviado": True})
+        try:
+            await to_thread.run_sync(
+                self.armazenamento.salvar_resultado, chave, atualizado.model_dump(mode="json"), metadados
+            )
+        except Exception as erro:
+            log.error(
+                "Falha ao registrar alerta confirmado: documento_id=%s chave=%s (%s)",
+                resultado.documento_id, chave, type(erro).__name__,
+            )
+            return resultado
+        return atualizado
 
     async def processar(
         self,
@@ -108,6 +146,10 @@ class ServicoTriagem:
         chave = criar_chave(nome)
         documento_id = identificar_documento({})
         original_ambiguo_salvo = False
+        metadados = {
+            "prioridade-revisao": "normal",
+            "recebido-em": datetime.now(timezone.utc).isoformat(),
+        }
         motivo = "Não foi possível salvar o original em recebidos."
         try:
             await to_thread.run_sync(self.armazenamento.salvar_original, chave, conteudo)
@@ -127,9 +169,11 @@ class ServicoTriagem:
                 "bytes": conteudo,
                 "canal_origem": canal_origem or documento.get("canal_origem"),
             }
+            log.info("Documento recebido: documento_id=%s chave=%s", documento_id, chave)
 
             motivo = "Não foi possível concluir a triagem."
             resultado = await self._triar(documento, caso_mock)
+            resultado = resultado.model_copy(update={"alerta_enviado": False})
             if resultado.classificacao == "ambiguidade":
                 motivo = "Não foi possível preservar o original para revisão humana."
                 await to_thread.run_sync(
@@ -139,10 +183,23 @@ class ServicoTriagem:
 
             motivo = "Não foi possível salvar o resultado da triagem."
             await to_thread.run_sync(
-                self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json")
+                self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json"), metadados
             )
-            return resultado
+            log.info(
+                "Resultado salvo: documento_id=%s chave=%s rota=%s",
+                documento_id, chave, resultado.classificacao,
+            )
         except Exception as erro:
+            revisao = "O documento requer revisão humana."
+            if isinstance(erro, FalhaPersistenteAgente):
+                metadados.update({
+                    "prioridade-revisao": "alta", "motivo-revisao": "falha_tecnica_agente",
+                })
+                motivo = "Falha técnica do agente após duas tentativas."
+                revisao = (
+                    "O documento requer revisão humana prioritária, "
+                    "pois pode conter uma urgência."
+                )
             log.error(
                 "Falha no processamento: chave=%s documento_id=%s motivo=%s (%s)",
                 chave, documento_id, motivo, type(erro).__name__,
@@ -150,13 +207,16 @@ class ServicoTriagem:
             resultado = ResultadoTriagem(
                 documento_id=documento_id,
                 classificacao="ambiguidade",
-                destino_principal=DESTINOS["ambiguidade"],
+                destino_principal=carregar_configuracao().roteamento.destino_ambiguidade,
                 score_confianca=0,
-                justificativa=f"{motivo} O documento requer revisão humana.",
+                justificativa=f"{motivo} {revisao}",
                 alerta_enviado=False,
                 dados_extraidos={},
             )
             await self._salvar_ambiguidade(
-                chave, conteudo, resultado, original_ambiguo_salvo
+                chave, conteudo, resultado, original_ambiguo_salvo, metadados
             )
             return resultado
+        if resultado.classificacao == "urgencia":
+            return await self._enviar_alerta(chave, resultado, metadados)
+        return resultado
