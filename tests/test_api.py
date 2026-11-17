@@ -76,7 +76,7 @@ def test_tres_cenarios_com_documentos_sinteticos(ambiente, numero, caso):
     resposta = enviar(client, conteudo, documento.name, "application/json")
 
     assert resposta.status_code == 200
-    assert resposta.json() == MOCKS[caso]
+    assert resposta.json() == {**MOCKS[caso], "alerta_enviado": False}
     conferir_gravacao(armazenamento, conteudo, resposta.json())
 
 
@@ -94,7 +94,7 @@ def test_formatos_binarios_com_cenario_explicito(ambiente, nome, mime, conteudo,
 
     assert resposta.status_code == 200
     resultado = resposta.json()
-    assert resultado == {**MOCKS[caso], "documento_id": resultado["documento_id"]}
+    assert resultado == {**MOCKS[caso], "documento_id": resultado["documento_id"], "alerta_enviado": False}
     assert str(UUID(resultado["documento_id"])) == resultado["documento_id"]
     conferir_gravacao(armazenamento, conteudo, resultado)
 
@@ -453,7 +453,8 @@ def anyio_backend():
 
 
 @pytest.mark.anyio
-async def test_timeout_nao_bloqueia_saude_e_documento_vai_para_ambiguidade(tmp_path):
+@pytest.mark.parametrize("caso", ["rotina", "urgencia"])
+async def test_timeout_nao_bloqueia_saude_e_documento_vai_para_ambiguidade(tmp_path, monkeypatch, caso):
     iniciou = Event()
     liberar = Event()
     terminaram = Event()
@@ -465,7 +466,7 @@ async def test_timeout_nao_bloqueia_saude_e_documento_vai_para_ambiguidade(tmp_p
             chamadas.append(documento["documento_id"])
             iniciou.set()
             liberar.wait(3)
-            resultado = AgenteSimulado().triar(documento, "rotina")
+            resultado = AgenteSimulado().triar(documento, caso)
             concluidas.append(documento["documento_id"])
             if len(concluidas) == 2:
                 terminaram.set()
@@ -473,6 +474,8 @@ async def test_timeout_nao_bloqueia_saude_e_documento_vai_para_ambiguidade(tmp_p
 
     armazenamento = ArmazenamentoTeste(tmp_path)
     servico = ServicoTriagem(armazenamento, AgenteLento, timeout_segundos=0.1)
+    alerta = Mock(return_value=True)
+    monkeypatch.setattr("api.service.enviar_alerta", alerta)
     app.dependency_overrides[obter_servico] = lambda: servico
     respostas = []
     try:
@@ -497,11 +500,13 @@ async def test_timeout_nao_bloqueia_saude_e_documento_vai_para_ambiguidade(tmp_p
         assert chamadas == [resultado["documento_id"]] * 2
         conferir_gravacao(armazenamento, b"original", resultado)
         assert not (tmp_path / "processados").exists()
+        alerta.assert_not_called()
         liberar.set()
         assert await anyio.to_thread.run_sync(terminaram.wait, 1)
         # As duas respostas atrasadas não podem reclassificar nem persistir rotina.
         conferir_gravacao(armazenamento, b"original", resultado)
         assert not (tmp_path / "processados").exists()
+        alerta.assert_not_called()
     finally:
         liberar.set()
         app.dependency_overrides.clear()
@@ -529,3 +534,44 @@ async def test_timeout_na_primeira_tentativa_pode_recuperar(tmp_path):
         conferir_gravacao(armazenamento, b"original", resultado.model_dump())
     finally:
         liberar.set()
+
+
+@pytest.mark.anyio
+async def test_envio_de_alerta_nao_bloqueia_saude(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_MODE", "mock")
+    monkeypatch.setenv("AGENT_TIMEOUT_SECONDS", "30")
+    iniciou = Event()
+    liberar = Event()
+
+    def enviar_alerta(resultado):
+        iniciou.set()
+        liberar.wait(3)
+        return False
+
+    monkeypatch.setattr("api.service.enviar_alerta", enviar_alerta)
+    servico = ServicoTriagem(ArmazenamentoTeste(tmp_path))
+    app.dependency_overrides[obter_servico] = lambda: servico
+    respostas = []
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test",
+        ) as client:
+            async def enviar_urgente():
+                respostas.append(await client.post(
+                    "/triagem", files={"arquivo": ("exame.pdf", b"original", "application/pdf")},
+                    data={"caso_mock": "urgencia"},
+                ))
+
+            with anyio.fail_after(2):
+                async with anyio.create_task_group() as tarefas:
+                    tarefas.start_soon(enviar_urgente)
+                    assert await anyio.to_thread.run_sync(iniciou.wait, 1)
+                    assert (await client.get("/saude")).json() == {"status": "ok"}
+                    assert not respostas
+                    liberar.set()
+        assert respostas[0].status_code == 200
+        assert respostas[0].json()["classificacao"] == "urgencia"
+        assert respostas[0].json()["alerta_enviado"] is False
+    finally:
+        liberar.set()
+        app.dependency_overrides.clear()

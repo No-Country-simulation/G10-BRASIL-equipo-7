@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 import pytest
+import requests
 
 from api.main import app
 from storage.oci_storage import obter_armazenamento_oci
@@ -240,3 +241,118 @@ def test_falha_oci_apos_grafo_preserva_original_e_resultado_na_ambiguidade(integ
     gemini.generate_content.assert_called_once()
     conferir_persistencia(objetos, conteudo, resultado)
     assert s3.put_object.call_args.kwargs["Metadata"]["prioridade-revisao"] == "normal"
+
+
+@pytest.mark.parametrize("falha", [
+    None, requests.Timeout(), requests.ConnectionError(),
+    requests.HTTPError("HTTP 500"), RuntimeError("Falha inesperada"),
+])
+def test_alerta_apos_persistencia_preserva_triagem_urgente(integracao, monkeypatch, falha):
+    http, gemini, s3, objetos = integracao
+    gemini.generate_content.return_value = SimpleNamespace(text=json.dumps(extracao("urgencia")))
+    monkeypatch.setenv("ALERTA_WEBHOOK_URL", "https://webhook.test/urgencia")
+
+    def receber(url, json, timeout):
+        original = next(corpo for (bucket, _), corpo in objetos.items() if bucket == "recebidos-teste")
+        conferir_persistencia(objetos, original, json)
+        assert json["alerta_enviado"] is False
+        if falha is not None and not isinstance(falha, requests.HTTPError):
+            raise falha
+        resposta = Mock()
+        resposta.raise_for_status.side_effect = falha
+        return resposta
+
+    post = Mock(side_effect=receber)
+    monkeypatch.setattr("alerts.urgencia.requests.post", post)
+    resposta, conteudo = enviar(http, "urgencia")
+
+    assert resposta.status_code == 200
+    resultado = resposta.json()
+    assert resultado["classificacao"] == "urgencia"
+    assert resultado["destino_principal"] == "Fila_Emergencia_Medica"
+    assert resultado["alerta_enviado"] is (falha is None)
+    assert resultado["score_confianca"] == pytest.approx(0.927)
+    post.assert_called_once_with(
+        "https://webhook.test/urgencia", json={**resultado, "alerta_enviado": False}, timeout=10,
+    )
+    gemini.generate_content.assert_called_once()
+    conferir_persistencia(objetos, conteudo, resultado)
+    gravacoes = s3.put_object.call_args_list
+    assert len(gravacoes) == (3 if falha is None else 2)
+    assert gravacoes[1].kwargs["Metadata"] == gravacoes[-1].kwargs["Metadata"]
+
+
+def test_falha_ao_registrar_alerta_confirmado_preserva_primeiro_resultado(integracao, monkeypatch, caplog):
+    http, gemini, s3, objetos = integracao
+    gemini.generate_content.return_value = SimpleNamespace(text=json.dumps(extracao("urgencia")))
+    salvar = s3.put_object.side_effect
+
+    def falhar_na_atualizacao(**argumentos):
+        if argumentos["Key"].endswith(".triagem.json") and json.loads(argumentos["Body"])["alerta_enviado"]:
+            raise OSError("Falha na atualização")
+        salvar(**argumentos)
+
+    s3.put_object.side_effect = falhar_na_atualizacao
+    alerta = Mock(return_value=True)
+    monkeypatch.setattr("api.service.enviar_alerta", alerta)
+    caplog.set_level("INFO")
+    resposta, conteudo = enviar(http, "urgencia")
+
+    assert resposta.status_code == 200
+    resultado = resposta.json()
+    assert resultado["classificacao"] == "urgencia"
+    assert resultado["alerta_enviado"] is False
+    conferir_persistencia(objetos, conteudo, resultado)
+    alerta.assert_called_once()
+    assert s3.put_object.call_count == 3
+    assert "Alerta confirmado pelo webhook" in caplog.text
+    assert "Falha ao registrar alerta confirmado" in caplog.text
+
+
+@pytest.mark.parametrize("cenario", ["rotina", "ambiguidade", "urgencia"])
+def test_alerta_inesperado_ou_dispensado_nao_altera_rota(integracao, monkeypatch, cenario):
+    http, gemini, _, objetos = integracao
+    gemini.generate_content.return_value = SimpleNamespace(text=json.dumps(extracao(cenario)))
+    alerta = Mock(side_effect=RuntimeError("Falha inesperada do adaptador"))
+    monkeypatch.setattr("api.service.enviar_alerta", alerta)
+
+    resposta, conteudo = enviar(http, cenario)
+
+    assert resposta.status_code == 200
+    resultado = resposta.json()
+    assert resultado["classificacao"] == cenario
+    assert resultado["alerta_enviado"] is False
+    assert alerta.call_count == (1 if cenario == "urgencia" else 0)
+    conferir_persistencia(objetos, conteudo, resultado)
+
+
+def test_retry_do_modelo_urgente_envia_um_unico_alerta(integracao, monkeypatch):
+    http, gemini, _, objetos = integracao
+    gemini.generate_content.side_effect = [
+        RuntimeError("Falha transitória"), SimpleNamespace(text=json.dumps(extracao("urgencia"))),
+    ]
+    alerta = Mock(return_value=True)
+    monkeypatch.setattr("api.service.enviar_alerta", alerta)
+
+    resposta, conteudo = enviar(http, "urgencia")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["alerta_enviado"] is True
+    assert gemini.generate_content.call_count == 2
+    alerta.assert_called_once()
+    conferir_persistencia(objetos, conteudo, resposta.json())
+
+
+def test_webhook_ausente_preserva_urgencia_sem_fazer_requisicao(integracao, monkeypatch):
+    http, gemini, _, objetos = integracao
+    gemini.generate_content.return_value = SimpleNamespace(text=json.dumps(extracao("urgencia")))
+    post = Mock()
+    monkeypatch.setattr("alerts.urgencia.requests.post", post)
+
+    resposta, conteudo = enviar(http, "urgencia")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["classificacao"] == "urgencia"
+    assert resposta.json()["alerta_enviado"] is False
+    post.assert_not_called()
+    conferir_persistencia(objetos, conteudo, resposta.json())

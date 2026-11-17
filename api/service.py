@@ -13,6 +13,7 @@ from anyio import fail_after, to_thread
 from agent.adapters import Agente, identificar_documento, obter_agente
 from agent.config import carregar_configuracao
 from agent.schemas import ResultadoTriagem, Rota
+from alerts.urgencia import enviar_alerta
 from storage.base import Armazenamento, criar_chave
 
 
@@ -107,6 +108,33 @@ class ServicoTriagem:
                 chave, type(erro).__name__,
             )
 
+    async def _enviar_alerta(
+        self, chave: str, resultado: ResultadoTriagem, metadados: dict[str, str],
+    ) -> ResultadoTriagem:
+        try:
+            enviado = await to_thread.run_sync(enviar_alerta, resultado.model_dump(mode="json"))
+        except Exception as erro:
+            log.error("Falha no envio do alerta: chave=%s (%s)", chave, type(erro).__name__)
+            return resultado
+        if not enviado:
+            return resultado
+        log.info(
+            "Alerta confirmado pelo webhook: documento_id=%s chave=%s",
+            resultado.documento_id, chave,
+        )
+        atualizado = resultado.model_copy(update={"alerta_enviado": True})
+        try:
+            await to_thread.run_sync(
+                self.armazenamento.salvar_resultado, chave, atualizado.model_dump(mode="json"), metadados
+            )
+        except Exception as erro:
+            log.error(
+                "Falha ao registrar alerta confirmado: documento_id=%s chave=%s (%s)",
+                resultado.documento_id, chave, type(erro).__name__,
+            )
+            return resultado
+        return atualizado
+
     async def processar(
         self,
         nome: str,
@@ -145,6 +173,7 @@ class ServicoTriagem:
 
             motivo = "Não foi possível concluir a triagem."
             resultado = await self._triar(documento, caso_mock)
+            resultado = resultado.model_copy(update={"alerta_enviado": False})
             if resultado.classificacao == "ambiguidade":
                 motivo = "Não foi possível preservar o original para revisão humana."
                 await to_thread.run_sync(
@@ -160,7 +189,6 @@ class ServicoTriagem:
                 "Resultado salvo: documento_id=%s chave=%s rota=%s",
                 documento_id, chave, resultado.classificacao,
             )
-            return resultado
         except Exception as erro:
             revisao = "O documento requer revisão humana."
             if isinstance(erro, FalhaPersistenteAgente):
@@ -189,3 +217,6 @@ class ServicoTriagem:
                 chave, conteudo, resultado, original_ambiguo_salvo, metadados
             )
             return resultado
+        if resultado.classificacao == "urgencia":
+            return await self._enviar_alerta(chave, resultado, metadados)
+        return resultado

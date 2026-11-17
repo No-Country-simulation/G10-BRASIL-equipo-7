@@ -239,7 +239,7 @@ def test_triagem_dos_documentos_de_teste_grava_nos_buckets_certos(
         app.dependency_overrides.clear()
 
     assert resposta.status_code == 200
-    assert resposta.json() == MOCKS[caso]
+    assert resposta.json() == {**MOCKS[caso], "alerta_enviado": False}
     recebidos = [objeto for b, objeto in cliente.objetos if b == "mediflow-recebidos"]
     assert len(recebidos) == 1
     chave = recebidos[0]
