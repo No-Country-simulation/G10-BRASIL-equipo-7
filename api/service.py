@@ -1,6 +1,7 @@
 """Orquestra o armazenamento e a triagem, sem depender da camada HTTP."""
 
 from copy import deepcopy
+from datetime import datetime, timezone
 import json
 import logging
 import math
@@ -79,6 +80,7 @@ class ServicoTriagem:
         conteudo: bytes,
         resultado: ResultadoTriagem,
         original_salvo: bool,
+        metadados: dict[str, str],
     ) -> None:
         if not original_salvo:
             try:
@@ -93,7 +95,7 @@ class ServicoTriagem:
         # Tenta registrar a revisão mesmo que não tenha conseguido copiar o original.
         try:
             await to_thread.run_sync(
-                self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json")
+                self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json"), metadados
             )
             log.info(
                 "Resultado salvo: documento_id=%s chave=%s rota=%s",
@@ -116,6 +118,10 @@ class ServicoTriagem:
         chave = criar_chave(nome)
         documento_id = identificar_documento({})
         original_ambiguo_salvo = False
+        metadados = {
+            "prioridade-revisao": "normal",
+            "recebido-em": datetime.now(timezone.utc).isoformat(),
+        }
         motivo = "Não foi possível salvar o original em recebidos."
         try:
             await to_thread.run_sync(self.armazenamento.salvar_original, chave, conteudo)
@@ -148,7 +154,7 @@ class ServicoTriagem:
 
             motivo = "Não foi possível salvar o resultado da triagem."
             await to_thread.run_sync(
-                self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json")
+                self.armazenamento.salvar_resultado, chave, resultado.model_dump(mode="json"), metadados
             )
             log.info(
                 "Resultado salvo: documento_id=%s chave=%s rota=%s",
@@ -158,6 +164,9 @@ class ServicoTriagem:
         except Exception as erro:
             revisao = "O documento requer revisão humana."
             if isinstance(erro, FalhaPersistenteAgente):
+                metadados.update({
+                    "prioridade-revisao": "alta", "motivo-revisao": "falha_tecnica_agente",
+                })
                 motivo = "Falha técnica do agente após duas tentativas."
                 revisao = (
                     "O documento requer revisão humana prioritária, "
@@ -177,6 +186,6 @@ class ServicoTriagem:
                 dados_extraidos={},
             )
             await self._salvar_ambiguidade(
-                chave, conteudo, resultado, original_ambiguo_salvo
+                chave, conteudo, resultado, original_ambiguo_salvo, metadados
             )
             return resultado

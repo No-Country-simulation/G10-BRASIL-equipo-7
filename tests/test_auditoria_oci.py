@@ -24,10 +24,17 @@ class ClienteFalso:
 
     def __init__(self, tamanho_pagina=1000):
         self.objetos = {}
+        self.metadados = {}
         self.tamanho_pagina = tamanho_pagina
 
-    def put_object(self, Bucket, Key, Body, ContentType):
+    def put_object(self, Bucket, Key, Body, ContentType, Metadata=None):
         self.objetos[(Bucket, Key)] = Body
+        self.metadados[(Bucket, Key)] = dict(Metadata or {})
+
+    def head_object(self, Bucket, Key):
+        if (Bucket, Key) not in self.objetos:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        return {"Metadata": self.metadados[(Bucket, Key)]}
 
     def get_object(self, Bucket, Key):
         if (Bucket, Key) not in self.objetos:
@@ -94,6 +101,31 @@ def test_chave_inexistente_levanta_nao_encontrado():
         armazenamento(ClienteFalso()).ler_resultado("nada.pdf")
 
 
+@pytest.mark.parametrize("metadados", [None, {
+    "prioridade-revisao": "alta", "motivo-revisao": "falha_tecnica_agente",
+    "recebido-em": "2026-11-17T10:00:00+00:00",
+}])
+def test_metadados_de_revisao_sao_lidos_separadamente_do_json(metadados):
+    cliente = ClienteFalso()
+    oci = armazenamento(cliente)
+    oci.salvar_resultado("a.pdf", resultado(), metadados)
+
+    assert oci.ler_metadados_revisao("a.pdf") == (metadados or {"prioridade-revisao": "normal"})
+    assert oci.ler_resultado("a.pdf") == resultado()
+    assert len(cliente.objetos) == 1
+
+
+@pytest.mark.parametrize("codigo", ["404", "NoSuchKey", "NotFound", "AccessDenied"])
+def test_erros_na_leitura_de_metadados(codigo):
+    class ClienteComFalha(ClienteFalso):
+        def head_object(self, **_):
+            raise ClientError({"Error": {"Code": codigo}}, "HeadObject")
+
+    esperado = ClientError if codigo == "AccessDenied" else DocumentoNaoEncontrado
+    with pytest.raises(esperado):
+        armazenamento(ClienteComFalha()).ler_metadados_revisao("a.pdf")
+
+
 def test_outros_erros_de_leitura_nao_sao_engolidos():
     class Negado(ClienteFalso):
         def get_object(self, Bucket, Key):
@@ -107,3 +139,5 @@ def test_outros_erros_de_leitura_nao_sao_engolidos():
 def test_chave_com_caminho_e_rejeitada(chave):
     with pytest.raises(ValueError):
         armazenamento(ClienteFalso()).ler_resultado(chave)
+    with pytest.raises(ValueError):
+        armazenamento(ClienteFalso()).ler_metadados_revisao(chave)

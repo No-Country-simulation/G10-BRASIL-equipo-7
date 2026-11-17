@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
@@ -62,12 +63,15 @@ def integracao(monkeypatch):
     ]:
         monkeypatch.setenv(variavel, bucket)
     objetos = {}
+    metadados = {}
     s3 = Mock()
 
-    def salvar(Bucket, Key, Body, ContentType):
+    def salvar(Bucket, Key, Body, ContentType, Metadata=None):
         objetos[(Bucket, Key)] = Body
+        metadados[(Bucket, Key)] = dict(Metadata or {})
 
     s3.put_object.side_effect = salvar
+    s3.head_object.side_effect = lambda Bucket, Key: {"Metadata": metadados[(Bucket, Key)]}
     monkeypatch.setattr("storage.oci_storage.criar_cliente", lambda: s3)
     gemini = Mock()
     gemini.generate_content.return_value = SimpleNamespace(text=json.dumps(extracao("rotina")))
@@ -165,7 +169,8 @@ def test_endpoint_grafo_e_oci_nas_tres_rotas(integracao, cenario, destino, score
 @pytest.mark.parametrize("falha", [None, "", "  ", "{", "{}", RuntimeError("Gemini indisponível")])
 @pytest.mark.parametrize("recupera", [True, False])
 def test_falha_tecnica_do_gemini_tem_segunda_tentativa(integracao, falha, recupera):
-    http, gemini, _, objetos = integracao
+    http, gemini, s3, objetos = integracao
+    inicio = datetime.now(timezone.utc)
     primeira = falha if isinstance(falha, Exception) else SimpleNamespace(text=falha)
     segunda = gemini.generate_content.return_value if recupera else primeira
     gemini.generate_content.side_effect = [primeira, segunda]
@@ -185,11 +190,19 @@ def test_falha_tecnica_do_gemini_tem_segunda_tentativa(integracao, falha, recupe
         assert "após duas tentativas" in resultado["justificativa"]
         assert "revisão humana prioritária" in resultado["justificativa"]
     conferir_persistencia(objetos, conteudo, resultado)
+    gravacao = s3.put_object.call_args.kwargs
+    metadados = gravacao["Metadata"]
+    assert metadados["prioridade-revisao"] == ("normal" if recupera else "alta")
+    assert inicio <= datetime.fromisoformat(metadados["recebido-em"]) <= datetime.now(timezone.utc)
+    if not recupera:
+        assert metadados["motivo-revisao"] == "falha_tecnica_agente"
+        chave = gravacao["Key"].removeprefix("ambiguidade/").removesuffix(".triagem.json")
+        assert obter_armazenamento_oci().ler_metadados_revisao(chave) == metadados
 
 
 @pytest.mark.parametrize("cenario,rota", [("rotina", "ambiguidade"), ("urgencia", "urgencia")])
 def test_extracao_valida_com_campo_ilegivel_segue_regras_clinicas(integracao, cenario, rota):
-    http, gemini, _, objetos = integracao
+    http, gemini, s3, objetos = integracao
     dados = extracao(cenario)
     dados["legibilidade"] = 0.2
     dados["dados_extraidos"]["paciente"]["nome"] = None
@@ -205,6 +218,7 @@ def test_extracao_valida_com_campo_ilegivel_segue_regras_clinicas(integracao, ce
     assert "prioritária" not in resultado["justificativa"]
     gemini.generate_content.assert_called_once()
     conferir_persistencia(objetos, conteudo, resultado)
+    assert s3.put_object.call_args.kwargs["Metadata"]["prioridade-revisao"] == "normal"
 
 
 def test_falha_oci_apos_grafo_preserva_original_e_resultado_na_ambiguidade(integracao):
@@ -225,3 +239,4 @@ def test_falha_oci_apos_grafo_preserva_original_e_resultado_na_ambiguidade(integ
     assert resultado["dados_extraidos"] == {}
     gemini.generate_content.assert_called_once()
     conferir_persistencia(objetos, conteudo, resultado)
+    assert s3.put_object.call_args.kwargs["Metadata"]["prioridade-revisao"] == "normal"

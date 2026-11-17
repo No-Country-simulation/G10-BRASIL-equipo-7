@@ -282,10 +282,10 @@ def test_falha_ao_salvar_resultado_vai_para_ambiguidade(ambiente, monkeypatch):
     client, armazenamento, _ = ambiente
     salvar = armazenamento.salvar_resultado
 
-    def falhar_so_em_processados(chave, resultado):
+    def falhar_so_em_processados(chave, resultado, metadados=None):
         if resultado["classificacao"] != "ambiguidade":
             raise OSError("Bucket processados indisponível")
-        salvar(chave, resultado)
+        salvar(chave, resultado, metadados)
 
     monkeypatch.setattr(armazenamento, "salvar_resultado", falhar_so_em_processados)
     resposta = enviar(client, caso_mock="rotina")
@@ -299,11 +299,11 @@ def test_falha_ao_salvar_json_ambiguo_nao_copia_original_duas_vezes(ambiente, mo
     salvar = armazenamento.salvar_resultado
     chamadas = []
 
-    def falhar_uma_vez(chave, resultado):
+    def falhar_uma_vez(chave, resultado, metadados=None):
         chamadas.append(chave)
         if len(chamadas) == 1:
             raise OSError("Falha transitória")
-        salvar(chave, resultado)
+        salvar(chave, resultado, metadados)
 
     monkeypatch.setattr(armazenamento, "salvar_resultado", falhar_uma_vez)
     resultado = conferir_falha(enviar(client, caso_mock="ambiguidade"))

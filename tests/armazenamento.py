@@ -13,6 +13,7 @@ from storage.base import (
 class ArmazenamentoTeste:
     def __init__(self, diretorio: Path):
         self.diretorio = diretorio
+        self.metadados = {}
 
     def _salvar(self, pasta: Path, chave: str, conteudo: bytes) -> None:
         validar_chave(chave)
@@ -24,11 +25,12 @@ class ArmazenamentoTeste:
     def salvar_original(self, chave: str, conteudo: bytes) -> None:
         self._salvar(Path("recebidos"), chave, conteudo)
 
-    def salvar_resultado(self, chave: str, resultado: dict) -> None:
+    def salvar_resultado(self, chave: str, resultado: dict, metadados=None) -> None:
         self._salvar(
             DESTINOS[resultado["classificacao"]],
             f"{chave}.triagem.json", serializar_resultado(resultado),
         )
+        self.metadados[chave] = dict(metadados or {})
 
     def salvar_original_ambiguo(self, chave: str, conteudo: bytes) -> None:
         self._salvar(DESTINOS["ambiguidade"], chave, conteudo)
@@ -60,6 +62,10 @@ class ArmazenamentoTeste:
         validar_chave(chave)
         arquivo = self._pasta_auditoria() / f"{chave}{SUFIXO_DECISAO}"
         return json.loads(arquivo.read_text(encoding="utf-8")) if arquivo.exists() else None
+
+    def ler_metadados_revisao(self, chave: str) -> dict[str, str]:
+        self.ler_resultado(chave)
+        return {"prioridade-revisao": "normal", **self.metadados.get(chave, {})}
 
     def salvar_decisao(self, chave: str, decisao: dict) -> None:
         try:
