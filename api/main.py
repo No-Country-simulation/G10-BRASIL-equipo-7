@@ -1,6 +1,7 @@
 """API FastAPI (#9). Rodar: uvicorn api.main:app --reload"""
 import logging
 from pathlib import Path
+import tomllib
 from typing import Annotated
 
 from dotenv import load_dotenv
@@ -16,7 +17,10 @@ from storage.oci_storage import obter_armazenamento_oci
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="MediFlow")
+with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as arquivo:
+    versao = tomllib.load(arquivo)["project"]["version"]
+
+app = FastAPI(title="MediFlow", version=versao)
 app.include_router(roteador_auditoria)
 
 TIPOS_POR_EXTENSAO = {
