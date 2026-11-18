@@ -355,6 +355,8 @@ class ArmazenamentoObjectStorage:
         }
         decisao = self.ler_decisao(chave)
         if decisao is not None:
+            if not isinstance(decisao, dict):
+                raise ValueError("O registro da revisão deve ser um objeto JSON")
             if any(decisao.get(campo) != valor for campo, valor in entrada.items()):
                 raise DecisaoJaRegistrada(chave)
             if decisao.get("estado") == "concluido":

@@ -1,7 +1,7 @@
 """Consulta dos documentos armazenados nos buckets, por categoria de triagem."""
 import logging
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -29,10 +29,12 @@ class ItemDocumento(BaseModel):
     categoria: Rota
     original_disponivel: bool
     erro: str | None
+    situacao_revisao: Literal["pendente", "revisado"] | None = None
 
 
 class DetalheDocumento(ItemDocumento):
     resultado: dict[str, Any] | None
+    decisao: dict[str, Any] | None = None
 
 
 class ObjetoArmazenado(BaseModel):
@@ -81,20 +83,55 @@ def _consultar(armazenamento: ArmazenamentoConsulta, categoria: Rota, chave: str
     return _executar(armazenamento.consultar_documento, categoria, chave)
 
 
+def _com_revisao(armazenamento: ArmazenamentoConsulta, documento: dict):
+    if documento["categoria"] != "ambiguidade":
+        return documento
+    documento = dict(documento)
+    try:
+        decisao = _executar(armazenamento.ler_decisao, documento["chave"])
+        if decisao is not None and not isinstance(decisao, dict):
+            raise ValueError("Decisão incompatível")
+    except (ValueError, UnicodeDecodeError):
+        decisao = None
+        documento["erro"] = documento.get("erro") or "O registro da revisão está ilegível."
+    documento["decisao"] = decisao
+    documento["situacao_revisao"] = (
+        "revisado" if decisao is not None and decisao.get("estado") != "pendente" else "pendente"
+    )
+    return documento
+
+
 # Síncronos: FastAPI executa as chamadas à OCI fora do ciclo assíncrono.
-@router.get("", response_model=list[ItemDocumento])
+@router.get("", response_model=list[ItemDocumento], response_model_exclude_unset=True)
 def listar(
     armazenamento: Armazenamento,
     categoria: Annotated[Rota, Query(description="Categoria dos documentos a consultar")],
+    incluir_revisao: Annotated[bool, Query(description="Inclui a situação da revisão em Ambiguidade")] = False,
+    situacao_revisao: Annotated[
+        Literal["pendentes", "revisados", "todos"] | None,
+        Query(description="Filtra Ambiguidade e inclui a situação da revisão"),
+    ] = None,
 ):
     """Lista identificação e disponibilidade, sem baixar os arquivos originais."""
-    return _executar(armazenamento.listar_documentos, categoria)
+    if situacao_revisao is not None and categoria != "ambiguidade":
+        raise HTTPException(status_code=422, detail="O filtro de revisão se aplica somente a Ambiguidade.")
+    documentos = _executar(armazenamento.listar_documentos, categoria)
+    if incluir_revisao or situacao_revisao is not None:
+        documentos = [_com_revisao(armazenamento, item) for item in documentos]
+    if situacao_revisao in ("pendentes", "revisados"):
+        situacao = "pendente" if situacao_revisao == "pendentes" else "revisado"
+        documentos = [item for item in documentos if item["situacao_revisao"] == situacao]
+    return documentos
 
 
-@router.get("/{categoria}/{chave}", response_model=DetalheDocumento)
-def detalhar(categoria: Rota, chave: str, armazenamento: Armazenamento):
+@router.get("/{categoria}/{chave}", response_model=DetalheDocumento, response_model_exclude_unset=True)
+def detalhar(
+    categoria: Rota, chave: str, armazenamento: Armazenamento,
+    incluir_revisao: Annotated[bool, Query(description="Inclui a decisão registrada em Ambiguidade")] = False,
+):
     """Retorna o JSON da triagem em resultado; se ilegível, retorna erro e resultado nulo."""
-    return _consultar(armazenamento, categoria, chave)
+    documento = _consultar(armazenamento, categoria, chave)
+    return _com_revisao(armazenamento, documento) if incluir_revisao else documento
 
 
 @router.delete("/{categoria}/{chave}", response_model=ResultadoExclusao)

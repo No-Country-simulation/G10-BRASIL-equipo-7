@@ -8,12 +8,14 @@ from datetime import datetime, timezone
 import logging
 from typing import Annotated, Any, Literal
 
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from agent.config import carregar_configuracao
 from storage.base import (
     ArmazenamentoAuditoria, DecisaoJaRegistrada, DocumentoNaoEncontrado,
-    validar_chave,
+    FalhaEncaminhamentoDocumento, validar_chave,
 )
 from storage.oci_storage import obter_armazenamento_oci
 
@@ -24,7 +26,10 @@ router = APIRouter(prefix="/auditoria", tags=["auditoria"])
 
 
 def obter_armazenamento_auditoria() -> ArmazenamentoAuditoria:
-    return obter_armazenamento_oci()
+    try:
+        return obter_armazenamento_oci()
+    except (BotoCoreError, ClientError, OSError, RuntimeError):
+        raise HTTPException(status_code=503, detail="Armazenamento temporariamente indisponível.")
 
 
 Armazenamento = Annotated[ArmazenamentoAuditoria, Depends(obter_armazenamento_auditoria)]
@@ -70,6 +75,30 @@ class ItemAuditoria(BaseModel):
     recebido_em: AwareDatetime | None = None
 
 
+class EncaminhamentoEntrada(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    destino: Literal["rotina", "urgencia"]
+    departamento: str | None = Field(default=None, min_length=1, max_length=200)
+    revisor: str = Field(min_length=1, max_length=100)
+    observacao: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def validar_departamento(self):
+        if self.destino == "rotina" and self.departamento is None:
+            raise ValueError("Informe o departamento para o encaminhamento de rotina.")
+        return self
+
+
+class EncaminhamentoResposta(EncaminhamentoEntrada):
+    acao: Literal["encaminhar"]
+    documento_id: str
+    classificacao_original: Literal["ambiguidade"]
+    estado: Literal["concluido"]
+    iniciado_em: AwareDatetime
+    decidido_em: AwareDatetime
+
+
 class DetalheAuditoria(BaseModel):
     chave: str
     resultado: dict[str, Any]
@@ -79,6 +108,8 @@ class DetalheAuditoria(BaseModel):
 def _chave_valida(chave: str) -> str:
     try:
         validar_chave(chave)
+        if any(ord(caractere) < 32 or ord(caractere) == 127 for caractere in chave):
+            raise ValueError("Chave com caracteres de controle")
     except ValueError:
         raise HTTPException(status_code=404, detail="Documento não encontrado.")
     return chave
@@ -152,3 +183,46 @@ def decidir(chave: str, entrada: DecisaoEntrada, armazenamento: Armazenamento):
         decisao["documento_id"], chave, entrada.acao,
     )
     return decisao
+
+
+@router.post("/{chave}/encaminhamento", response_model=EncaminhamentoResposta, responses={
+    404: {"description": "Documento não encontrado."},
+    409: {"description": "Já existe uma decisão diferente para este documento."},
+    503: {"description": "Encaminhamento incompleto ou armazenamento indisponível."},
+})
+def encaminhar(chave: str, entrada: EncaminhamentoEntrada, armazenamento: Armazenamento):
+    """Encaminha para processados e preserva a triagem original na auditoria.
+
+    Rotina exige um departamento configurado. Urgência usa a fila médica.
+    A mesma decisão pode ser repetida para retomar uma gravação interrompida.
+    """
+    _chave_valida(chave)
+    try:
+        configuracao = carregar_configuracao().roteamento
+    except (OSError, ValueError):
+        raise HTTPException(status_code=503, detail="Configuração de roteamento indisponível.")
+    departamento = entrada.departamento
+    permitidos = (
+        {configuracao.destino_urgencia} if entrada.destino == "urgencia"
+        else set(configuracao.departamentos_por_categoria.values())
+    )
+    if entrada.destino == "urgencia" and departamento is None:
+        departamento = configuracao.destino_urgencia
+    if departamento not in permitidos:
+        raise HTTPException(status_code=422, detail="Departamento incompatível com o destino.")
+    try:
+        return armazenamento.encaminhar_documento(
+            chave, entrada.destino, departamento, entrada.revisor, entrada.observacao,
+        )
+    except DocumentoNaoEncontrado:
+        raise HTTPException(status_code=404, detail="Documento não encontrado.")
+    except DecisaoJaRegistrada:
+        raise HTTPException(status_code=409, detail="Este documento já tem uma decisão diferente registrada.")
+    except FalhaEncaminhamentoDocumento as erro:
+        raise HTTPException(status_code=503, detail={
+            "mensagem": "Encaminhamento não concluído. Repita a mesma decisão para retomar.",
+            "estado": "pendente", "etapa": erro.etapa,
+        })
+    except (BotoCoreError, ClientError, OSError, RuntimeError, ValueError) as erro:
+        log.warning("Falha no encaminhamento: chave=%s (%s)", chave, type(erro).__name__)
+        raise HTTPException(status_code=503, detail="Encaminhamento indisponível. Tente novamente.")

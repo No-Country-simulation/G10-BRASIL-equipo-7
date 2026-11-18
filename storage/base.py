@@ -81,6 +81,8 @@ class ArmazenamentoConsulta(Protocol):
 
     def excluir_documento(self, categoria: str, chave: str) -> dict: ...
 
+    def ler_decisao(self, chave: str) -> dict | None: ...
+
 
 class DecisaoJaRegistrada(Exception):
     """O documento já tem decisão; a decisão original nunca é sobrescrita."""
