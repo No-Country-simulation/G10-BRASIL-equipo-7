@@ -7,6 +7,7 @@ O primeiro segmento do destino identifica o bucket:
 - mediflow-auditoria-humana: ambiguidade/<chave> e ambiguidade/<chave>.triagem.json
 """
 
+from datetime import datetime, timezone
 from functools import lru_cache
 import logging
 import os
@@ -19,7 +20,8 @@ from botocore.exceptions import ClientError
 
 from storage.base import (
     DESTINOS, PASTA_AUDITORIA, SUFIXO_DECISAO, SUFIXO_TRIAGEM,
-    DecisaoJaRegistrada, DocumentoNaoEncontrado, FalhaExclusaoDocumento,
+    DecisaoJaRegistrada, DocumentoNaoEncontrado, FalhaEncaminhamentoDocumento,
+    FalhaExclusaoDocumento,
     serializar_decisao, serializar_resultado, validar_chave,
 )
 
@@ -283,7 +285,12 @@ class ArmazenamentoObjectStorage:
             nome = objeto[len(prefixo):]
             if nome.endswith(SUFIXO_TRIAGEM):
                 chave = nome[: -len(SUFIXO_TRIAGEM)]
-                chaves[chave] = f"{prefixo}{chave}{SUFIXO_DECISAO}" in objetos
+                try:
+                    decisao = self.ler_decisao(chave) if f"{prefixo}{chave}{SUFIXO_DECISAO}" in objetos else None
+                except (ValueError, UnicodeDecodeError):
+                    log.warning("Decisão ilegível na auditoria: chave=%s", chave)
+                    decisao = None
+                chaves[chave] = isinstance(decisao, dict) and decisao.get("estado") != "pendente"
         return chaves
 
     def ler_resultado(self, chave: str) -> dict:
@@ -317,10 +324,93 @@ class ArmazenamentoObjectStorage:
         # cobre o uso normal (um revisor por documento) e o log registra o resto.
         if self.ler_decisao(chave) is not None:
             raise DecisaoJaRegistrada(chave)
+        self._gravar_decisao(chave, decisao)
+
+    def _gravar_decisao(self, chave: str, decisao: dict) -> None:
         self._enviar(
             DESTINOS["ambiguidade"], f"{chave}{SUFIXO_DECISAO}",
             serializar_decisao(decisao), "application/json",
         )
+
+    def encaminhar_documento(
+        self, chave: str, destino: str, departamento: str, revisor: str,
+        observacao: str = "",
+    ) -> dict:
+        """Grava o resultado revisado sem alterar a triagem original da auditoria.
+
+        As gravações não são atômicas entre buckets. O registro pendente permite
+        repetir a mesma decisão; decisões antigas ou diferentes não são alteradas.
+        """
+        validar_chave(chave)
+        if destino not in ("rotina", "urgencia"):
+            raise ValueError("O destino deve ser rotina ou urgencia")
+        if any(not isinstance(valor, str) or not valor.strip() for valor in (departamento, revisor)):
+            raise ValueError("Informe o departamento e o revisor")
+        if not isinstance(observacao, str):
+            raise ValueError("A observação deve ser um texto")
+        entrada = {
+            "acao": "encaminhar", "destino": destino,
+            "departamento": departamento.strip(), "revisor": revisor.strip(),
+            "observacao": observacao.strip(),
+        }
+        decisao = self.ler_decisao(chave)
+        if decisao is not None:
+            if any(decisao.get(campo) != valor for campo, valor in entrada.items()):
+                raise DecisaoJaRegistrada(chave)
+            if decisao.get("estado") == "concluido":
+                return decisao
+            if decisao.get("estado") != "pendente":
+                raise DecisaoJaRegistrada(chave)
+
+        original = self.ler_resultado(chave)
+        if not isinstance(original, dict) or original.get("classificacao") != "ambiguidade":
+            raise ValueError("A triagem original deve estar em ambiguidade")
+        resultado = {
+            **original, "classificacao": destino,
+            "destino_principal": entrada["departamento"], "alerta_enviado": False,
+            "justificativa": (
+                f"{original.get('justificativa', '')}\n"
+                f"Revisão humana por {entrada['revisor']}: encaminhado para {destino}."
+                + (f" Observação: {entrada['observacao']}" if entrada["observacao"] else "")
+            ).strip(),
+        }
+        serializar_resultado(resultado)  # Valida antes de criar o registro pendente.
+        etapa = "registrar_decisao"
+        try:
+            if decisao is None:
+                decisao = {
+                    **entrada, "documento_id": original["documento_id"],
+                    "classificacao_original": "ambiguidade", "estado": "pendente",
+                    "iniciado_em": datetime.now(timezone.utc).isoformat(),
+                }
+                self.salvar_decisao(chave, decisao)
+
+            etapa = "preservar_original"
+            if not self._original_disponivel(destino, chave):
+                self.salvar_original(chave, self.ler_original("ambiguidade", chave))
+
+            etapa = "salvar_resultado"
+            bucket, prefixo = self._destino_categoria(destino)
+            existente = self._ler(f"{prefixo}{chave}{SUFIXO_TRIAGEM}", bucket)
+            if existente is None:
+                self.salvar_resultado(chave, resultado, self.ler_metadados_revisao(chave))
+            elif json.loads(existente) != resultado:
+                raise DecisaoJaRegistrada(chave)
+
+            etapa = "concluir_decisao"
+            concluida = {
+                **decisao, "estado": "concluido",
+                "decidido_em": datetime.now(timezone.utc).isoformat(),
+            }
+            self._gravar_decisao(chave, concluida)
+        except DecisaoJaRegistrada:
+            raise
+        except Exception as erro:
+            log.warning("Encaminhamento pendente: chave=%s etapa=%s (%s)",
+                        chave, etapa, type(erro).__name__)
+            raise FalhaEncaminhamentoDocumento(etapa) from erro
+        log.info("Encaminhamento concluído: chave=%s destino=%s", chave, destino)
+        return concluida
 
 
 @lru_cache(maxsize=1)

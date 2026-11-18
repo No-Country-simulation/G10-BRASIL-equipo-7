@@ -86,6 +86,14 @@ class DecisaoJaRegistrada(Exception):
     """O documento já tem decisão; a decisão original nunca é sobrescrita."""
 
 
+class FalhaEncaminhamentoDocumento(Exception):
+    """Encaminhamento incompleto, que pode ser retomado com a mesma decisão."""
+
+    def __init__(self, etapa: str):
+        super().__init__("Não foi possível concluir o encaminhamento do documento.")
+        self.etapa = etapa
+
+
 def serializar_decisao(decisao: dict) -> bytes:
     return json.dumps(
         decisao, ensure_ascii=False, allow_nan=False, indent=2
@@ -96,7 +104,7 @@ class ArmazenamentoAuditoria(Protocol):
     """Operações de leitura e decisão usadas pelo painel de auditoria humana."""
 
     def listar_ambiguidades(self) -> dict[str, bool]:
-        """Chave de cada documento com triagem em ambiguidade -> já tem decisão."""
+        """Chave -> revisão concluída; encaminhamentos pendentes continuam na fila."""
         ...
 
     def ler_resultado(self, chave: str) -> dict:
@@ -111,4 +119,11 @@ class ArmazenamentoAuditoria(Protocol):
 
     def salvar_decisao(self, chave: str, decisao: dict) -> None:
         """Levanta DecisaoJaRegistrada se já houver decisão para a chave."""
+        ...
+
+    def encaminhar_documento(
+        self, chave: str, destino: str, departamento: str, revisor: str,
+        observacao: str = "",
+    ) -> dict:
+        """Preserva o histórico e confirma a revisão após persistir o encaminhamento."""
         ...
