@@ -21,8 +21,28 @@ footer { visibility: hidden; }
     padding: 1rem;
 }
 .st-key-consulta_documentos [class*="st-key-painel_"] h3 { font-size: 1.1rem; }
-.st-key-painel_arquivos button { justify-content: flex-start; text-align: left; }
-.st-key-painel_arquivos button p { overflow-wrap: anywhere; }
+.st-key-lista_arquivos { gap: .15rem; }
+.st-key-painel_arquivos button[data-testid] {
+    justify-content: flex-start; text-align: left; min-height: 3.75rem;
+    padding: .6rem .65rem; border: 0; border-bottom: 1px solid #e2e8f0;
+    border-left: 3px solid transparent; border-radius: .35rem; background: #fff;
+}
+.st-key-painel_arquivos button[data-testid] > div,
+.st-key-painel_arquivos button[data-testid] [data-has-shortcut] {
+    justify-content: flex-start; gap: .6rem; width: 100%;
+}
+.st-key-painel_arquivos button[data-testid] p {
+    color: #64748b; font-size: .72rem; line-height: 1.35; overflow-wrap: anywhere;
+}
+.st-key-painel_arquivos button[data-testid] strong {
+    color: #14202b; font-size: .85rem; font-weight: 650;
+}
+.st-key-painel_arquivos button[data-testid]:hover { background: #f1f5f9; }
+.st-key-painel_arquivos button[data-testid][kind="primary"] {
+    background: #e8f0ff; border-left-color: #2563eb; border-bottom-color: transparent;
+}
+.st-key-painel_arquivos button[data-testid][kind="primary"] * { color: #1e3a8a !important; }
+.st-key-painel_arquivos button[data-testid][kind="primary"] p { color: #475569 !important; }
 .resumo-rota { display: flex; align-items: center; gap: .5rem; padding: .6rem; border-radius: .5rem; }
 .resumo-campo { padding: .7rem 0; border-bottom: 1px solid #e2e8f0; }
 .resumo-campo small { display: block; color: #64748b; font-size: .8rem; }

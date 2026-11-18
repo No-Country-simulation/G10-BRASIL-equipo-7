@@ -317,12 +317,24 @@ def render_lista_documentos(itens, categoria):
     if st.session_state.get(estado) not in filtrados:
         st.session_state[estado] = filtrados[0]
         limpar_documento_aberto()
-    with st.container(height=440, border=False):
+    formatos = {
+        ".pdf": ("PDF", "Documento PDF", "description"),
+        ".png": ("PNG", "Imagem PNG", "image"),
+        ".jpg": ("JPG", "Imagem JPEG", "image"),
+        ".jpeg": ("JPEG", "Imagem JPEG", "image"),
+        ".json": ("JSON", "Documento JSON", "data_object"),
+    }
+    with st.container(height=440, border=False, key="lista_arquivos"):
         for chave in filtrados:
             item = next(item for item in itens if item["chave"] == chave)
-            rotulo = rotulos[chave] + (" · Revisão prioritária" if item.get("prioridade_revisao") == "alta" else "")
+            extensao = Path(item.get("nome") or chave).suffix.lower()
+            tipo, descricao, icone_arquivo = formatos.get(extensao, (extensao.lstrip(".").upper() or "Arquivo", "Arquivo", "draft"))
+            titulo = "".join("\\" + c if c in "\\`*_{}[]<>()#+.!|~>" else c for c in rotulos[chave])
+            rotulo = f"**{titulo}**  \n{tipo} · {descricao}"
+            if item.get("prioridade_revisao") == "alta":
+                rotulo += " · Revisão prioritária"
             if st.button(rotulo, key=f"arquivo_{categoria}_{chave}",
-                         icon=":material/description:", width="stretch",
+                         icon=f":material/{icone_arquivo}:", width="stretch", help=rotulos[chave],
                          type="primary" if chave == st.session_state[estado] else "secondary"):
                 if chave != st.session_state[estado]:
                     st.session_state[estado] = chave
