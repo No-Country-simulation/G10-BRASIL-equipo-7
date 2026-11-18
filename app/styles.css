@@ -23,6 +23,12 @@ footer { visibility: hidden; }
 .st-key-consulta_documentos [class*="st-key-painel_"] h3 { font-size: 1.1rem; }
 .st-key-painel_arquivos button { justify-content: flex-start; text-align: left; }
 .st-key-painel_arquivos button p { overflow-wrap: anywhere; }
+.st-key-previa_original_480 [data-testid="stImage"] img {
+    max-height: 440px; object-fit: contain;
+}
+.st-key-previa_original_700 [data-testid="stImage"] img {
+    max-height: 660px; object-fit: contain;
+}
 
 /* ---------- Cabeçalho ---------- */
 .marca {

@@ -208,7 +208,7 @@ def render_legenda(ativo=None, contagens=None):
 
 
 def limpar_documento_aberto():
-    for chave in ("original_documento", "exclusao_documento"):
+    for chave in ("original_documento", "erro_original_documento", "exclusao_documento"):
         st.session_state.pop(chave, None)
 
 
@@ -232,18 +232,63 @@ def mostrar_erro_documentos(erro):
         st.code(str(erro))
 
 
-def mostrar_original(conteudo, nome):
+def mostrar_original(conteudo, nome, altura=480):
     extensao = nome.rsplit(".", 1)[-1].lower()
     try:
-        if extensao in ("png", "jpg", "jpeg"):
-            st.image(conteudo, width="stretch")
-        elif extensao == "json":
-            st.json(json.loads(conteudo))
-        elif extensao == "pdf":
-            st.pdf(conteudo, height=620, alt="Documento original em PDF")
+        if extensao == "pdf":
+            st.pdf(conteudo, height=altura, alt="Documento original em PDF")
+        else:
+            with st.container(height=altura, border=False, key=f"previa_original_{altura}"):
+                if extensao in ("png", "jpg", "jpeg"):
+                    st.image(conteudo, width="stretch")
+                elif extensao == "json":
+                    st.json(json.loads(conteudo))
+                else:
+                    st.info("Prévia indisponível para este formato. Use o download.")
     except (ValueError, OSError):
         st.warning("Não foi possível visualizar este formato. Use o download do original.")
-    st.download_button("Baixar original", conteudo, file_name=nome, on_click="ignore")
+
+
+@st.dialog("Documento original", width="large")
+def mostrar_original_ampliado(conteudo, nome):
+    st.caption(nome)
+    mostrar_original(conteudo, nome, altura=700)
+
+
+def render_previa_documento(categoria, chave, caminho, detalhe):
+    if not detalhe.get("original_disponivel"):
+        st.session_state.pop("original_documento", None)
+        st.info("Original indisponível nos buckets.")
+        return
+    identidade = (categoria, chave)
+    original = st.session_state.get("original_documento")
+    erro = st.session_state.get("erro_original_documento")
+    if not (original and original[:2] == identidade) and not (erro and erro[:2] == identidade):
+        try:
+            with st.spinner("Carregando original…"):
+                resposta = chamar_documentos("get", caminho + "/original")
+            original = (*identidade, resposta.content)
+            st.session_state["original_documento"] = original
+            st.session_state.pop("erro_original_documento", None)
+            erro = None
+        except requests.RequestException as falha:
+            erro = (*identidade, str(falha))
+            st.session_state["erro_original_documento"] = erro
+    if erro and erro[:2] == identidade:
+        st.error("Não foi possível carregar o original. Tente novamente.")
+        with st.expander("Detalhes da prévia"):
+            st.code(erro[2])
+        if st.button("Tentar novamente", key="recarregar_original"):
+            st.session_state.pop("erro_original_documento", None)
+            st.rerun()
+        return
+    nome = detalhe.get("nome") or chave
+    mostrar_original(original[2], nome)
+    ampliar, baixar = st.columns(2)
+    if ampliar.button("Ampliar", icon=":material/open_in_full:", width="stretch"):
+        mostrar_original_ampliado(original[2], nome)
+    baixar.download_button("Baixar original", original[2], file_name=nome,
+                            on_click="ignore", width="stretch")
 
 
 def render_lista_documentos(itens, categoria):
@@ -339,14 +384,7 @@ def render_documentos(categoria):
 
 
 def render_acoes_documento(categoria, chave, caminho, detalhe):
-    if st.button("Visualizar original", disabled=not detalhe.get("original_disponivel")):
-        original = chamar_documentos("get", caminho + "/original")
-        st.session_state["original_documento"] = (categoria, chave, original.content)
-    original = st.session_state.get("original_documento")
-    if original and original[:2] == (categoria, chave):
-        mostrar_original(original[2], detalhe.get("nome") or chave)
-    if not detalhe.get("original_disponivel"):
-        st.caption("Original indisponível nos buckets.")
+    render_previa_documento(categoria, chave, caminho, detalhe)
     if st.button("Excluir documento"):
         st.session_state["exclusao_documento"] = (categoria, chave)
     if st.session_state.get("exclusao_documento") == (categoria, chave):
