@@ -56,7 +56,30 @@ class Armazenamento(Protocol):
 
 
 class DocumentoNaoEncontrado(LookupError):
-    """Não há resultado de triagem para a chave na auditoria humana."""
+    """O documento solicitado não existe no armazenamento."""
+
+
+class FalhaExclusaoDocumento(Exception):
+    """Mantém os objetos confirmados e pendentes após uma exclusão interrompida."""
+
+    def __init__(self, removidos: list[dict], pendentes: list[dict]):
+        super().__init__("Não foi possível concluir a exclusão do documento.")
+        self.removidos = removidos
+        self.pendentes = pendentes
+
+
+class ArmazenamentoConsulta(Protocol):
+    """Consulta e exclusão dos documentos, separados por categoria."""
+
+    def listar_documentos(self, categoria: str) -> list[dict]: ...
+
+    def consultar_documento(self, categoria: str, chave: str) -> dict: ...
+
+    def ler_original(self, categoria: str, chave: str) -> bytes:
+        """Levanta DocumentoNaoEncontrado quando não há original nem cópia."""
+        ...
+
+    def excluir_documento(self, categoria: str, chave: str) -> dict: ...
 
 
 class DecisaoJaRegistrada(Exception):

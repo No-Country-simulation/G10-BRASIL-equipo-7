@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 
 from agent.schemas import ResultadoTriagem, Rota
 from api.auditoria import router as roteador_auditoria
+from api.documentos import router as roteador_documentos
 from api.service import ServicoTriagem
 from storage.base import Armazenamento
 from storage.oci_storage import obter_armazenamento_oci
@@ -22,6 +23,7 @@ with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as arqu
 
 app = FastAPI(title="MediFlow", version=versao)
 app.include_router(roteador_auditoria)
+app.include_router(roteador_documentos)
 
 TIPOS_POR_EXTENSAO = {
     ".pdf": "application/pdf",
