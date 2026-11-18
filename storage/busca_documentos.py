@@ -51,7 +51,7 @@ class BuscaDocumentos:
                 raise ValueError("Paginação sem avanço")
             usados.add(token)
 
-    def _ler(self, bucket, objeto, original=False):
+    def _ler(self, bucket, objeto, original=False, reter_original=False):
         self._checar_prazo()
         if original and self.originais_lidos >= self.config.max_originais_consulta:
             raise LimiteBusca("Limite de originais lidos atingido")
@@ -86,13 +86,13 @@ class BuscaDocumentos:
                     break
                 lidos += len(bloco)
                 self.bytes_lidos += len(bloco)
-                if original:
+                if original and not reter_original:
                     digest.update(bloco)
                 else:
                     partes.append(bloco)
             self._checar_prazo()
             if original:
-                return digest.hexdigest()
+                return b"".join(partes) if reter_original else digest.hexdigest()
             dados = json.loads(b"".join(partes))
             if not isinstance(dados, dict):
                 raise ValueError("Registro não contém um objeto JSON")
