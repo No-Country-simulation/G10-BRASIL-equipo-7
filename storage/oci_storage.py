@@ -9,11 +9,13 @@ O primeiro segmento do destino identifica o bucket:
 
 from datetime import datetime, timezone
 from functools import lru_cache
+from hashlib import sha256
 import logging
 import os
 from pathlib import Path
 import re
 from threading import RLock
+from typing import TYPE_CHECKING
 
 import json
 
@@ -25,6 +27,10 @@ from storage.base import (
     FalhaExclusaoDocumento,
     serializar_decisao, serializar_resultado, validar_chave,
 )
+
+if TYPE_CHECKING:
+    from agent.chat_config import ConfiguracaoChat
+    from agent.chat_schemas import AnexoChat, VerificacaoAnexo
 
 
 log = logging.getLogger(__name__)
@@ -117,7 +123,7 @@ class ArmazenamentoObjectStorage:
 
     def _enviar_original(self, destino: Path, chave: str, conteudo: bytes) -> None:
         tipo = TIPOS.get(Path(chave).suffix.lower(), "application/octet-stream")
-        self._enviar(destino, chave, conteudo, tipo)
+        self._enviar(destino, chave, conteudo, tipo, {"sha256": sha256(conteudo).hexdigest()})
 
     def salvar_original(self, chave: str, conteudo: bytes) -> None:
         self._enviar_original(Path("recebidos"), chave, conteudo)
@@ -136,6 +142,14 @@ class ArmazenamentoObjectStorage:
 
     def salvar_original_ambiguo(self, chave: str, conteudo: bytes) -> None:
         self._enviar_original(DESTINOS["ambiguidade"], chave, conteudo)
+
+    def verificar_anexo(
+        self, anexo: "AnexoChat", configuracao: "ConfiguracaoChat | None" = None,
+    ) -> "VerificacaoAnexo":
+        """Busca somente de leitura; não persiste o anexo ou altera arquivos antigos."""
+        from storage.busca_documentos import BuscaDocumentos
+
+        return BuscaDocumentos(self, configuracao).verificar(anexo)
 
     # --- Consulta por categoria ------------------------------------------------
 
