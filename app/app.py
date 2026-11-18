@@ -7,6 +7,7 @@ A API decide entre simulação e agente real pela variável AGENT_MODE.
 import html
 import json
 import os
+from pathlib import Path
 import re
 from urllib.parse import quote
 
@@ -14,82 +15,14 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 
+from cliente_api import chamar_documentos, mensagem_de_erro, triar
+
 load_dotenv()
 
 # Layout largo (legenda em 3 colunas e cards lado a lado);
 st.set_page_config(page_title="MediFlow", layout="wide")
 
 ROTULO = {"rotina": "ROTINA", "urgencia": "URGÊNCIA", "ambiguidade": "AMBIGUIDADE"}
-CAMPOS_RESPOSTA = (
-    "documento_id",
-    "classificacao",
-    "destino_principal",
-    "score_confianca",
-    "justificativa",
-    "alerta_enviado",
-    "dados_extraidos",
-)
-# A API tenta o agente duas vezes (30 s cada), então o cliente espera um pouco mais.
-TIMEOUT_SEGUNDOS = 75
-FORMATOS_ACEITOS = "PDF, PNG, JPG, JPEG ou JSON"
-
-MENSAGENS_HTTP = {
-    400: "O arquivo está vazio. Escolha outro documento.",
-    415: f"Formato de arquivo não aceito. Envie {FORMATOS_ACEITOS}.",
-    422: "A API não aceitou a requisição. Confira o arquivo e o canal de origem.",
-}
-
-
-def url_api():
-    return os.getenv("API_URL", "http://localhost:8000").rstrip("/")
-
-
-def triar(arquivo, canal):
-    """Envia o arquivo para POST /triagem e devolve o JSON de triagem."""
-    dados = {"canal_origem": canal}
-    resposta = requests.post(
-        f"{url_api()}/triagem",
-        files={
-            "arquivo": (
-                arquivo.name,
-                arquivo.getvalue(),
-                arquivo.type or "application/octet-stream",
-            )
-        },
-        data=dados,
-        timeout=TIMEOUT_SEGUNDOS,
-    )
-    resposta.raise_for_status()
-    resultado = resposta.json()
-    if not isinstance(resultado, dict):
-        raise ValueError("A resposta de triagem deve conter um objeto JSON")
-    faltando = [c for c in CAMPOS_RESPOSTA if c not in resultado]
-    if faltando:
-        raise ValueError(f"campos ausentes na resposta: {', '.join(faltando)}")
-    if resultado["classificacao"] not in ROTULO:
-        raise ValueError(f"rota desconhecida: {resultado['classificacao']!r}")
-    return resultado
-
-
-def mensagem_de_erro(erro):
-    """Traduz uma falha da chamada à API em uma mensagem que o usuário entende."""
-    if isinstance(erro, requests.exceptions.ConnectionError):
-        return (
-            f"Não foi possível conectar à API em {url_api()}. "
-            "Verifique se o servidor está rodando."
-        )
-    if isinstance(erro, requests.exceptions.Timeout):
-        return "A triagem demorou mais que o esperado. Tente novamente em instantes."
-    if isinstance(erro, requests.exceptions.HTTPError):
-        status = erro.response.status_code if erro.response is not None else None
-        if status in MENSAGENS_HTTP:
-            return MENSAGENS_HTTP[status]
-        if status is not None and status >= 500:
-            return f"A API teve um erro interno (código {status}). Tente novamente."
-        return f"A API recusou a requisição (código {status})."
-    if isinstance(erro, ValueError):
-        return "A API devolveu uma resposta em formato inesperado."
-    return "Não foi possível concluir a triagem."
 
 
 def formatar_valor(valor):
@@ -190,233 +123,7 @@ def icone(nivel, tamanho=36):
     )
 
 
-ESTILOS = """
-<style>
-:root { color-scheme: light; }
-html { font-size: 18px; }                 /* textos grandes (acessibilidade) */
-
-/* ---------- Página ---------- */
-.stApp {
-    background: #f4f6f8;
-    color: #14202b;
-    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-}
-[data-testid="stHeader"] { background: transparent; }
-[data-testid="stMainBlockContainer"], .block-container {
-    max-width: 1152px; padding: 1.5rem 1.5rem 3rem;
-}
-[data-testid="stHeaderActionElements"] { display: none; }  /* ícone de âncora nos títulos */
-footer { visibility: hidden; }
-
-/* ---------- Cabeçalho ---------- */
-.marca {
-    display: flex; align-items: center; gap: 1rem;
-    padding-bottom: 1.1rem; margin-bottom: 1.5rem;
-    border-bottom: 2px solid #e2e8f0;
-}
-.marca-icone {
-    width: 3.5rem; height: 3.5rem; flex: 0 0 auto; display: grid;
-    place-items: center; border-radius: .75rem; background: #1e40af; color: #fff;
-}
-.marca h1 { font-size: 1.75rem; line-height: 1.1; margin: 0; padding: 0; font-weight: 800; color: #14202b; }
-.marca p { margin: .25rem 0 0; color: #475569; }
-
-/* ---------- Categorias (3 cartões clicáveis) ---------- */
-[class*="st-key-categoria_"] button[data-testid] {
-    min-height: 5.25rem; justify-content: flex-start; gap: .75rem;
-    padding: .75rem; background: #fff; border: 2px solid #e2e8f0;
-    border-radius: .75rem; text-align: left;
-}
-[class*="st-key-categoria_"] button > div,
-[class*="st-key-categoria_"] [data-has-shortcut] {
-    width: 100%; justify-content: flex-start; gap: .75rem;
-}
-[class*="st-key-categoria_"] span:has(> [data-testid="stIconMaterial"]) {
-    width: 3rem; height: 3rem; flex: 0 0 3rem;
-}
-[class*="st-key-categoria_"] [data-testid="stIconMaterial"] {
-    width: 3rem; height: 3rem; flex: 0 0 3rem; padding: 0;
-    display: grid; place-items: center; border-radius: 999px;
-    font-size: 1.7rem; line-height: 1;
-}
-[class*="st-key-categoria_"] button p { color: #475569; font-size: .88rem; }
-[class*="st-key-categoria_"] button strong { color: #14202b; font-size: 1rem; }
-
-/* ---------- Cards: st.container(key="card_...") gera a classe .st-key-card_... ---------- */
-[class*="st-key-card_"] {
-    background: #fff; border: 2px solid #e2e8f0; border-radius: 1rem;
-    padding: 1.4rem; box-shadow: 0 1px 2px rgb(15 23 42 / .05);
-}
-.titulo-secao { font-size: 1.5rem; font-weight: 800; margin: 0 0 1rem; padding: 0; color: #14202b; line-height: 1.2; }
-/* "Como funciona": o Streamlit põe recuo extra no h2 e margem negativa no fim do markdown;
-   ambos são zerados para o conteúdo ficar centralizado na caixa. Passos = bolinha + texto. */
-.st-key-card_como { gap: .6rem; padding: 1.9rem 1.6rem; }
-.st-key-card_como [data-testid="stMarkdownContainer"] > * { margin-top: 0 !important; margin-bottom: 0 !important; }
-.st-key-card_como .titulo-secao { font-size: 1.2rem; padding: 0 !important; margin: 0 0 .9rem !important; }
-.passos { list-style: none; margin: 0; padding: 0; counter-reset: passo; }
-.passos li {
-    counter-increment: passo; display: flex; align-items: flex-start; gap: .75rem;
-    margin: 0 0 .85rem; padding: 0; font-size: 1rem; line-height: 1.4; color: #334155;
-}
-.passos li:last-child { margin-bottom: 0; }
-.passos li::before {
-    content: counter(passo); flex: 0 0 1.9rem; width: 1.9rem; height: 1.9rem; margin-top: -.1rem;
-    display: grid; place-items: center; border-radius: 999px;
-    background: #dbeafe; color: #1e40af; font-weight: 800; font-size: .95rem;
-}
-
-/* ---------- Formulário ---------- */
-[data-testid="stWidgetLabel"] p { font-size: 1.1rem; font-weight: 600; }
-/* Uploader: só a CAIXA é estilizada. Textos e botões internos (Upload, "x" de remover) são
-   nativos: estilizar qualquer <button> da área quebra o layout com e sem arquivo. */
-[data-testid="stFileUploaderDropzone"] {
-    border: 4px dashed #94a3b8; border-radius: 1rem; background: #f8fafc;
-    /* área maior, para ter destaque na página */
-    min-height: 9.5rem; padding: 1.75rem 1.5rem;
-}
-[data-testid="stFileUploaderDropzone"]:hover { border-color: #1d4ed8; background: #eff6ff; }
-/* arquivo escolhido -> caixa verde (como no Figma) */
-[data-testid="stFileUploader"]:has([data-testid="stFileUploaderFile"]) [data-testid="stFileUploaderDropzone"] {
-    border-color: #15803d; background: #f0fdf4;
-}
-/* Upload centralizado (botão no meio, descrição abaixo). Vale só SEM arquivo escolhido;
-   "> button" pega apenas o botão Upload (filho direto), nunca o "x" do arquivo. */
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"] {
-    flex-direction: column; align-items: center; justify-content: center; gap: 1rem; text-align: center;
-}
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzoneInstructions"] {
-    order: 2; margin: 0 !important; align-items: center; text-align: center;
-}
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"] > button {
-    order: 1; min-height: 3.6rem; padding: 0 2.25rem; border: 2px solid #94a3b8; border-radius: .75rem; background: #fff;
-}
-/* botão Upload um pouco maior (texto e ícone) */
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"] > button,
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"] > button * {
-    font-size: 1.15rem !important; font-weight: 700;
-}
-/* dica em português acima do uploader */
-.dica { margin: 0 0 .5rem; color: #475569; font-size: .95rem; line-height: 1.4; }
-.stSelectbox [data-baseweb="select"] > div {
-    min-height: 3.5rem; border: 2px solid #94a3b8; border-radius: .75rem; font-size: 1.1rem;
-}
-
-/* ---------- Botões ---------- */
-.stButton > button {
-    min-height: 3.5rem; border-radius: .75rem; font-weight: 800; font-size: 1.1rem;
-}
-.stButton > button[kind="primary"], .stButton > button[data-testid="stBaseButton-primary"] {
-    background: #1e40af; border: 2px solid #1e40af; color: #fff;
-}
-.stButton > button[kind="primary"]:hover, .stButton > button[data-testid="stBaseButton-primary"]:hover {
-    background: #1e3a8a; border-color: #1e3a8a;
-}
-.stButton > button[kind="primary"] *, .stButton > button[data-testid="stBaseButton-primary"] * { color: #fff !important; }
-/* Botões grandes: o Streamlit limita a largura do contêiner e define a fonte no <p> interno,
-   por isso largura e fonte são ajustadas nos três níveis. */
-.st-key-enviar, .st-key-enviar [data-testid="stButton"], .st-key-enviar button,
-.st-key-tentar_novamente, .st-key-tentar_novamente [data-testid="stButton"], .st-key-tentar_novamente button {
-    width: 100%;
-}
-.st-key-enviar button, .st-key-reiniciar button, .st-key-tentar_novamente button { min-height: 4.75rem; }
-.st-key-enviar button p, .st-key-reiniciar button p, .st-key-tentar_novamente button p {
-    font-size: 1.4rem !important; font-weight: 800 !important;
-}
-.st-key-reiniciar, .st-key-reiniciar [data-testid="stButton"], .st-key-reiniciar button { width: 100%; }
-@media (min-width: 641px) {
-    .st-key-reiniciar, .st-key-reiniciar [data-testid="stButton"], .st-key-reiniciar button { width: auto; }
-    .st-key-reiniciar button { padding: 0 3rem; }
-}
-.rotulo-json { display:block; color:#475569; font-size:.75rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
-/* botão secundário "Ver JSON em tela cheia" */
-.st-key-json_popup button { min-height: 3.25rem; border: 2px solid #94a3b8; border-radius: .75rem; background: #fff; }
-.st-key-json_popup button p { font-size: 1.05rem !important; font-weight: 700 !important; }
-
-/* "Dados extraídos" e "Triagem" terminam na mesma linha: as colunas esticam e cada cartão
-   ocupa 100% da altura da sua coluna (o cartão menor cresce até alcançar o maior). */
-[data-testid="stHorizontalBlock"]:has(.st-key-card_dados) { align-items: stretch !important; }
-/* a própria coluna não leva height: com height definido ela deixaria de esticar */
-:is([data-testid="stColumn"], [data-testid="column"]):has(.st-key-card_dados) :has(.st-key-card_dados),
-:is([data-testid="stColumn"], [data-testid="column"]):has(.st-key-card_triagem) :has(.st-key-card_triagem),
-.st-key-card_dados, .st-key-card_triagem { height: 100%; box-sizing: border-box; }
-
-/* ---------- Mensagens e expander (detalhes técnicos de erro) ---------- */
-[data-testid="stAlert"] { border-radius: .75rem; font-size: 1.05rem; font-weight: 600; }
-[data-testid="stExpander"] { border: 2px solid #94a3b8; border-radius: .75rem; background: #fff; }
-[data-testid="stExpander"] summary { font-weight: 700; }
-
-/* ---------- Carregando ---------- */
-.carregando {
-    padding: 3rem 1.5rem; text-align: center; background: #fff;
-    border: 2px solid #e2e8f0; border-radius: 1rem;
-}
-.carregando h2 { margin: .75rem 0 .2rem; padding: 0; font-size: 1.5rem; font-weight: 800; color: #14202b; }
-.carregando p { margin: 0; color: #475569; }
-.giro {
-    width: 3.5rem; height: 3.5rem; margin: auto; border-radius: 50%;
-    border: .5rem solid #e2e8f0; border-top-color: #1e40af; animation: giro .8s linear infinite;
-}
-@keyframes giro { to { transform: rotate(360deg); } }
-
-/* ---------- Resultado ---------- */
-.banner {
-    padding: 1.6rem; border-radius: 1rem; background: var(--bg);
-    margin-bottom: 1.5rem; color: var(--icone);
-}
-.banner, .banner * { color: var(--icone) !important; }
-.banner.urgente { box-shadow: 0 0 0 8px #fecaca; }   /* anel vermelho de destaque */
-.banner-topo { display: flex; align-items: center; gap: 1.25rem; }
-.banner-topo small { display: block; font-size: 1.05rem; font-weight: 600; letter-spacing: .03em; }
-.banner-topo h2 {
-    font-size: clamp(2.2rem, 7vw, 3.2rem); line-height: 1; margin: .2rem 0;
-    padding: 0; font-weight: 900; letter-spacing: -.01em;
-}
-.banner-topo h3 { font-size: 1.4rem; margin: 0; padding: 0; font-weight: 800; }
-.banner > p { margin: 1rem 0 0; font-weight: 600; font-size: 1.05rem; }
-.banner svg { flex: 0 0 auto; }
-
-.id-doc { color: #475569; font-size: .8rem; word-break: break-all; margin: 0 0 .75rem; }
-.campo { padding: .85rem 1rem; margin-top: .65rem; border-radius: .75rem; background: #f8fafc; }
-.campo small {
-    display: block; color: #475569; font-size: .72rem; font-weight: 800;
-    letter-spacing: .05em; text-transform: uppercase;
-}
-.campo strong { display: block; margin-top: .1rem; font-size: 1.1rem; overflow-wrap: anywhere; }
-
-.confianca-topo {
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: .75rem; margin-bottom: .4rem;
-}
-.confianca-topo strong:first-child { font-size: 1.05rem; }
-.confianca-topo strong:last-child { font-size: 1.5rem; font-weight: 800; }
-.confianca-topo small { font-size: .9rem; font-weight: 600; color: #475569; }
-.barra { height: 1.1rem; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
-.barra > div { height: 100%; border-radius: inherit; background: var(--borda); }
-.bruto { color: #64748b; font-size: .78rem; margin: .3rem 0 1rem; }
-.justificativa {
-    padding: .9rem 1rem; border-left: .5rem solid var(--borda);
-    border-radius: .65rem; background: var(--soft); margin-bottom: 1rem;
-}
-.justificativa small {
-    color: var(--tinta); font-weight: 800; font-size: .75rem;
-    letter-spacing: .05em; text-transform: uppercase;
-}
-.justificativa p { margin: .2rem 0 0; font-size: 1.1rem; font-weight: 700; }
-
-/* ---------- Celular ---------- */
-@media (max-width: 640px) {
-    html { font-size: 16px; }
-    [data-testid="stMainBlockContainer"], .block-container { padding: 1rem 1rem 2rem; }
-    .marca p { font-size: .85rem; }
-    .banner { padding: 1.25rem; }
-    .banner-topo { gap: .9rem; }
-    .banner-topo svg { width: 3.5rem; height: 3.5rem; }
-    .banner-topo h2 { font-size: 1.75rem; }          /* "AMBIGUIDADE" cabe em 360 px */
-    .banner-topo h3 { font-size: 1.15rem; }
-    [class*="st-key-card_"] { padding: 1rem; }
-}
-</style>
-"""
+ESTILOS = "\n<style>\n" + Path(__file__).with_name("styles.css").read_text(encoding="utf-8") + "</style>\n"
 
 
 class ArquivoEnviado:
@@ -501,14 +208,6 @@ def render_legenda(ativo=None):
 def limpar_documento_aberto():
     for chave in ("original_documento", "exclusao_documento"):
         st.session_state.pop(chave, None)
-
-
-def chamar_documentos(metodo, caminho="", **parametros):
-    resposta = getattr(requests, metodo)(
-        f"{url_api()}/documentos{caminho}", timeout=30, **parametros
-    )
-    resposta.raise_for_status()
-    return resposta
 
 
 def mostrar_erro_documentos(erro):
