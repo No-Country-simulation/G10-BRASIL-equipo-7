@@ -178,6 +178,7 @@ class ArmazenamentoObjectStorage:
             resultado = json.loads(conteudo)
             if not isinstance(resultado, dict):
                 raise ValueError("O resultado deve ser um objeto JSON")
+            json.dumps(resultado, allow_nan=False)  # NaN e Infinity não são JSON válido.
         except (ValueError, UnicodeDecodeError):
             resultado, erro = None, "O resultado de triagem não contém um objeto JSON válido."
         # As chaves atuais preservam o nome sanitizado após o UUID; as antigas
