@@ -3,8 +3,9 @@ import json
 import os
 
 import requests
+from pydantic import TypeAdapter
 
-from agent.chat_schemas import RespostaChat
+from agent.chat_schemas import ChaveDocumento, RespostaChat
 
 
 CAMPOS_RESPOSTA = (
@@ -31,7 +32,7 @@ def url_api():
     return os.getenv("API_URL", "http://localhost:8000").rstrip("/")
 
 
-def triar(arquivo, canal):
+def triar(arquivo, canal, *, incluir_referencia=False):
     """Envia o arquivo para POST /triagem e devolve o JSON de triagem."""
     dados = {"canal_origem": canal}
     resposta = requests.post(
@@ -55,7 +56,14 @@ def triar(arquivo, canal):
         raise ValueError(f"campos ausentes na resposta: {', '.join(faltando)}")
     if resultado["classificacao"] not in ("rotina", "urgencia", "ambiguidade"):
         raise ValueError(f"rota desconhecida: {resultado['classificacao']!r}")
-    return resultado
+    if not incluir_referencia:
+        return resultado
+    chave = resposta.headers.get("X-Documento-Chave")
+    try:
+        chave = TypeAdapter(ChaveDocumento).validate_python(chave, strict=True)
+    except ValueError:
+        chave = None  # APIs antigas ainda podem responder sem o cabeçalho.
+    return resultado, chave
 
 
 def mensagem_de_erro(erro):
@@ -96,15 +104,18 @@ def chamar_auditoria(metodo, caminho="", **parametros):
     return resposta
 
 
-def conversar(mensagem, historico):
+def conversar(mensagem, historico, referencias=None, anexo=None):
     """Campos sem arquivo também usam multipart, como no contrato de POST /chat."""
+    campos = {
+        "mensagem": (None, mensagem),
+        "historico": (None, json.dumps(historico, ensure_ascii=False)),
+        "referencias": (None, json.dumps(referencias or [], ensure_ascii=False)),
+    }
+    if anexo is not None:
+        campos["arquivo"] = (anexo.nome, anexo.conteudo, anexo.tipo_mime)
     resposta = requests.post(
         f"{url_api()}/chat",
-        files={
-            "mensagem": (None, mensagem),
-            "historico": (None, json.dumps(historico, ensure_ascii=False)),
-            "referencias": (None, "[]"),
-        },
+        files=campos,
         timeout=TIMEOUT_SEGUNDOS,
     )
     resposta.raise_for_status()
@@ -120,6 +131,10 @@ def mensagem_de_erro_chat(erro):
         status = erro.response.status_code if erro.response is not None else None
         if status == 422:
             return "A API não aceitou a pergunta ou o histórico da conversa."
+        if status == 413:
+            return "O anexo excede o limite de tamanho do chat. Escolha um arquivo menor."
+        if status == 415:
+            return f"Formato de anexo não aceito. Envie {FORMATOS_ACEITOS}."
         return "O assistente está indisponível no momento. Tente novamente."
     return "O assistente devolveu uma resposta em formato inesperado."
 

@@ -5,27 +5,71 @@ import requests
 import streamlit as st
 
 from agent.chat_config import carregar_configuracao_chat
+from agent.chat_schemas import AnexoChat, FORMATOS_ANEXO, ReferenciaDocumento
 from cliente_api import conversar, mensagem_de_erro_chat
+from fontes_chat import render_fontes
 
 
 AVATAR = str(Path(__file__).resolve().parent / "assets" / "mediflow-icone.png")
 
 
 def nova_conversa():
-    for chave in ("conversa_chat", "pendente_chat", "erro_chat"):
+    liberar_contexto()
+    st.session_state.pop("conversa_chat", None)
+
+
+def liberar_contexto():
+    for chave in ("anexo_chat", "referencia_chat", "nome_contexto_chat", "pendente_chat", "erro_chat"):
         st.session_state.pop(chave, None)
     st.session_state["chat_em_envio"] = False
+    st.session_state["contexto_chat"] = st.session_state.get("contexto_chat", 0) + 1
 
 
-def receber_mensagem():
-    texto = st.session_state["mensagem_chat"].strip()
+def selecionar_documento(referencia, nome):
+    referencia = ReferenciaDocumento.model_validate(referencia).model_dump()
+    liberar_contexto()
+    st.session_state["referencia_chat"] = referencia
+    st.session_state["nome_contexto_chat"] = nome
+
+
+def receber_mensagem(chave):
+    entrada = st.session_state[chave]
+    texto = (entrada if isinstance(entrada, str) else entrada.text).strip()
+    arquivos = getattr(entrada, "files", [])
+    config = carregar_configuracao_chat()
+    nome_anexo = None
+    if arquivos:
+        try:
+            if len(arquivos) != 1 or arquivos[0].size > config.max_anexo_bytes:
+                raise ValueError("Anexo fora do limite")
+            arquivo = arquivos[0]
+            tipo = arquivo.type
+            if tipo in (None, "", "application/octet-stream"):
+                tipo = FORMATOS_ANEXO.get(Path(arquivo.name).suffix.lower())
+            anexo = AnexoChat(nome=arquivo.name, tipo_mime=tipo, conteudo=arquivo.getvalue())
+            if len(anexo.conteudo) > config.max_anexo_bytes:
+                raise ValueError("Anexo fora do limite")
+        except ValueError:
+            st.session_state.pop("pendente_chat", None)
+            st.session_state["chat_em_envio"] = False
+            st.session_state["erro_chat"] = f"Escolha um único PDF, PNG, JPG, JPEG ou JSON válido, até {config.max_anexo_mb} MB."
+            return
+        liberar_contexto()
+        st.session_state["anexo_chat"] = anexo
+        nome_anexo = anexo.nome
+        texto = texto or "Este arquivo já existe na base de documentos?"
     if not texto:
         return
     mensagens = st.session_state.setdefault("conversa_chat", [])
-    limite = carregar_configuracao_chat().max_interacoes_historico
-    historico = [{"papel": item["papel"], "conteudo": item["conteudo"]} for item in mensagens[-limite:]]
-    st.session_state["pendente_chat"] = (texto, historico)
-    mensagens.append({"papel": "usuario", "conteudo": texto})
+    contexto = st.session_state.get("contexto_chat", 0)
+    atuais = [item for item in mensagens if item.get("contexto", 0) == contexto]
+    historico = [{"papel": item["papel"], "conteudo": item["conteudo"]} for item in atuais[-config.max_interacoes_historico:]]
+    referencia = st.session_state.get("referencia_chat")
+    st.session_state["pendente_chat"] = {
+        "mensagem": texto, "historico": historico,
+        "referencias": [referencia] if referencia else [], "anexo": st.session_state.get("anexo_chat"),
+    }
+    mensagens.append({"papel": "usuario", "conteudo": texto, "contexto": contexto, "anexo_nome": nome_anexo})
     st.session_state["chat_em_envio"] = True
     st.session_state.pop("erro_chat", None)
 
@@ -35,12 +79,18 @@ def tentar_novamente():
     st.session_state.pop("erro_chat", None)
 
 
-def render_assistente():
+def render_assistente(abrir_documento):
     with st.container(horizontal=True, vertical_alignment="center"):
         st.subheader("Assistente", width="stretch")
         st.button("Nova conversa", key="nova_conversa", on_click=nova_conversa,
                   disabled=st.session_state.get("chat_em_envio", False))
     st.caption("Converse sobre os documentos da base. Esta consulta não altera os arquivos.")
+    anexo = st.session_state.get("anexo_chat")
+    referencia = st.session_state.get("referencia_chat")
+    if anexo or referencia:
+        nome = anexo.nome if anexo else st.session_state["nome_contexto_chat"]
+        st.text(("Anexo temporário: " if anexo else "Documento em contexto: ") + nome)
+        st.button("Remover contexto", key="remover_contexto_chat", on_click=liberar_contexto)
     with st.container(height=490, key="historico_chat", autoscroll=True):
         mensagens = st.session_state.get("conversa_chat", [])
         if not mensagens:
@@ -48,20 +98,23 @@ def render_assistente():
                 st.markdown("**Como posso ajudar?**")
                 st.write("Consulte os documentos e as evidências das triagens.")
                 st.caption('Experimente: “Quais casos estão em urgência?” ou “Encontre o arquivo laudo.pdf”.')
-        for item in mensagens:
+        for indice, item in enumerate(mensagens):
             papel = "user" if item["papel"] == "usuario" else "assistant"
             with st.chat_message(papel, avatar=AVATAR if papel == "assistant" else None):
                 st.markdown(item["conteudo"])
+                if item.get("anexo_nome"):
+                    st.caption("Anexo temporário · " + item["anexo_nome"])
+                render_fontes(item.get("resposta", {}), indice, abrir_documento)
                 cobertura = item.get("resposta", {}).get("cobertura")
                 if cobertura and not cobertura["completa"]:
                     st.caption("Consulta parcial · " + cobertura["motivo_limite"])
         if st.session_state.get("chat_em_envio"):
-            texto, historico = st.session_state["pendente_chat"]
             try:
                 with st.spinner("Consultando documentos…"):
-                    resposta = conversar(texto, historico)
+                    resposta = conversar(**st.session_state["pendente_chat"])
                 st.session_state["conversa_chat"].append({
                     "papel": "assistente", "conteudo": resposta["mensagem"], "resposta": resposta,
+                    "contexto": st.session_state.get("contexto_chat", 0),
                 })
                 st.session_state.pop("pendente_chat", None)
             except (requests.RequestException, ValueError) as erro:
@@ -70,5 +123,10 @@ def render_assistente():
             st.rerun()
     if erro := st.session_state.get("erro_chat"):
         st.error(erro)
-        st.button("Tentar novamente", key="repetir_chat", on_click=tentar_novamente)
-    st.chat_input("Pergunte sobre os documentos…", key="mensagem_chat", on_submit=receber_mensagem)
+        if st.session_state.get("pendente_chat"):
+            st.button("Tentar novamente", key="repetir_chat", on_click=tentar_novamente)
+    chave = f"mensagem_chat_{st.session_state.get('contexto_chat', 0)}"
+    config = carregar_configuracao_chat()
+    st.chat_input("Pergunte ou anexe um documento…", key=chave, on_submit=receber_mensagem, args=(chave,),
+                  accept_file=True, file_type=["pdf", "png", "jpg", "jpeg", "json"], max_upload_size=config.max_anexo_mb)
+    st.caption("O clipe mantém um anexo ativo nesta conversa, sem salvá-lo na base. Nomes semelhantes são apenas candidatos; a igualdade é verificada pelo conteúdo.")

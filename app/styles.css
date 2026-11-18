@@ -303,6 +303,10 @@ footer { visibility: hidden; }
 .st-key-historico_chat [data-testid="stChatMessage"] p { font-size: .9rem; line-height: 1.6; overflow-wrap: anywhere; }
 .st-key-historico_chat [data-testid="stChatMessageAvatarCustom"] { object-fit: contain; }
 .st-key-envio_assistente [data-testid="stChatInput"] { border-radius: .75rem; }
+.st-key-envio_assistente :is(.st-key-ver_ultima_triagem, .st-key-contexto_ultima_triagem, .st-key-remover_contexto_chat, [class*="st-key-fonte_resposta_"]) button {
+    min-height: 2.5rem; padding: .4rem .6rem;
+}
+.st-key-envio_assistente :is(.st-key-ver_ultima_triagem, .st-key-contexto_ultima_triagem, .st-key-remover_contexto_chat, [class*="st-key-fonte_resposta_"]) button p { font-size: .85rem; }
 @media (max-width: 1050px) {
     .st-key-envio_assistente [data-testid="stHorizontalBlock"]:has(.st-key-painel_nova_triagem) {
         flex-direction: column;

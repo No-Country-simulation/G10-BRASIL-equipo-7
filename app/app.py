@@ -154,6 +154,7 @@ def render_legenda(ativo=None, contagens=None):
                          icon=f":material/{icones[nivel]}:", width="stretch",
                          disabled=st.session_state.get("carregando", False)):
                 st.session_state["categoria_documentos"] = nivel
+                st.session_state.pop("documento_citado_chat", None)
                 limpar_documento_aberto()
                 st.switch_page(PAGINA_DOCUMENTOS)
 
@@ -161,6 +162,13 @@ def render_legenda(ativo=None, contagens=None):
 def limpar_documento_aberto():
     for chave in ("original_documento", "erro_original_documento", "exclusao_documento"):
         st.session_state.pop(chave, None)
+
+
+def abrir_documento_chat(referencia):
+    st.session_state["categoria_documentos"] = referencia["categoria"]
+    st.session_state["documento_citado_chat"] = referencia
+    limpar_documento_aberto()
+    st.switch_page(PAGINA_DOCUMENTOS)
 
 
 def mostrar_erro_documentos(erro):
@@ -402,6 +410,17 @@ def render_documentos(categoria):
     contagens = st.session_state.setdefault("contagens_documentos", {})
     contagens[categoria] = len(itens)
     render_legenda(categoria, contagens)
+    alvo = st.session_state.get("documento_citado_chat")
+    if alvo and alvo["categoria"] == categoria:
+        if not any(item["chave"] == alvo["chave"] for item in itens):
+            st.warning("O documento citado não está disponível nesta categoria. Ele pode ter sido movido ou excluído.")
+            if st.button("Mostrar lista de documentos"):
+                st.session_state.pop("documento_citado_chat", None)
+                st.rerun()
+            return
+        st.session_state[f"selecionado_{categoria}"] = alvo["chave"]
+        st.session_state["limpar_busca_documentos"] = categoria
+    st.session_state.pop("documento_citado_chat", None)
     if st.session_state.pop("apos_encaminhamento", False):
         limpar_documento_aberto()
     col_arquivos, col_original, col_resultado = st.columns([25, 45, 30])
@@ -463,9 +482,9 @@ def pagina_envio():
     with st.container(key="envio_assistente"):
         esquerda, direita = st.columns([1, 1.2], gap="large")
         with esquerda, st.container(key="painel_nova_triagem"):
-            render_nova_triagem(formatar_valor)
+            render_nova_triagem(formatar_valor, abrir_documento_chat)
         with direita, st.container(key="painel_assistente"):
-            render_assistente()
+            render_assistente(abrir_documento_chat)
 
 
 def pagina_documentos():
