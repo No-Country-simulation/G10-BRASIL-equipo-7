@@ -495,7 +495,7 @@ def render_legenda(ativo=None):
                          disabled=st.session_state.get("carregando", False)):
                 st.session_state["categoria_documentos"] = nivel
                 limpar_documento_aberto()
-                st.rerun()
+                st.switch_page(PAGINA_DOCUMENTOS)
 
 
 def limpar_documento_aberto():
@@ -546,15 +546,18 @@ def mostrar_original(conteudo, nome):
 
 
 def render_documentos(categoria):
-    st.subheader(f"Documentos · {ROTULO[categoria]}")
-    if st.button("Voltar ao envio"):
-        st.session_state.pop("categoria_documentos", None)
-        st.session_state.pop("resultado", None)
+    titulo, atualizar, novo = st.columns([5, 1.5, 2])
+    titulo.subheader("Documentos")
+    titulo.caption("Consulte os arquivos e os resultados da triagem.")
+    if atualizar.button("Atualizar", icon=":material/refresh:", width="stretch"):
         limpar_documento_aberto()
         st.rerun()
-    if st.button("Atualizar lista"):
+    if novo.button("Novo documento", icon=":material/add:", type="primary", width="stretch"):
+        for chave in ("resultado", "erro", "pendente", "carregando"):
+            st.session_state.pop(chave, None)
         limpar_documento_aberto()
-        st.rerun()
+        st.switch_page(PAGINA_ENVIO)
+    render_legenda(categoria)
     aviso = st.session_state.pop("aviso_documentos", None)
     if aviso:
         st.success(aviso)
@@ -778,20 +781,31 @@ def render_resultado(resultado):
         st.rerun()
 
 
-# --- Montagem da página -----------------------------------------------------
-st.markdown(ESTILOS, unsafe_allow_html=True)
-render_cabecalho()
+def pagina_envio():
+    st.markdown(ESTILOS, unsafe_allow_html=True)
+    render_cabecalho()
+    resultado = st.session_state.get("resultado")
+    render_legenda(resultado["classificacao"] if resultado else None)
+    st.write("")
+    if st.session_state.get("carregando") and "pendente" in st.session_state:
+        render_carregando()
+    elif resultado is None:
+        render_envio()
+    else:
+        render_resultado(resultado)
 
-resultado = st.session_state.get("resultado")
-categoria = st.session_state.get("categoria_documentos")
-render_legenda(categoria or (resultado["classificacao"] if resultado else None))
-st.write("")
 
-if categoria:
+def pagina_documentos():
+    st.markdown(ESTILOS, unsafe_allow_html=True)
+    categoria = st.session_state.setdefault("categoria_documentos", "ambiguidade")
     render_documentos(categoria)
-elif st.session_state.get("carregando") and "pendente" in st.session_state:
-    render_carregando()
-elif resultado is None:
-    render_envio()
-else:
-    render_resultado(resultado)
+
+
+# --- Navegação: o comando de inicialização continua sendo app/app.py. ---------
+PAGINA_ENVIO = st.Page(pagina_envio, title="Enviar documento", icon=":material/upload_file:", default=True)
+PAGINA_DOCUMENTOS = st.Page(pagina_documentos, title="Documentos", icon=":material/folder:", url_path="documentos")
+st.navigation([
+    PAGINA_ENVIO,
+    PAGINA_DOCUMENTOS,
+    st.Page("pages/1_Auditoria.py", title="Auditoria", icon=":material/fact_check:", url_path="Auditoria"),
+]).run()
