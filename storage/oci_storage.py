@@ -7,11 +7,13 @@ O primeiro segmento do destino identifica o bucket:
 - mediflow-auditoria-humana: ambiguidade/<chave> e ambiguidade/<chave>.triagem.json
 """
 
+from datetime import datetime, timezone
 from functools import lru_cache
 import logging
 import os
 from pathlib import Path
 import re
+from threading import RLock
 
 import json
 
@@ -19,7 +21,8 @@ from botocore.exceptions import ClientError
 
 from storage.base import (
     DESTINOS, PASTA_AUDITORIA, SUFIXO_DECISAO, SUFIXO_TRIAGEM,
-    DecisaoJaRegistrada, DocumentoNaoEncontrado, FalhaExclusaoDocumento,
+    DecisaoJaRegistrada, DocumentoNaoEncontrado, FalhaEncaminhamentoDocumento,
+    FalhaExclusaoDocumento,
     serializar_decisao, serializar_resultado, validar_chave,
 )
 
@@ -86,6 +89,7 @@ class ArmazenamentoObjectStorage:
 
     def __init__(self, cliente=None, buckets: dict[str, str] | None = None):
         self.cliente = cliente if cliente is not None else criar_cliente()
+        self._lock_revisao = RLock()
         self.buckets = buckets or {
             nome: os.getenv(variavel) or padrao
             for nome, (variavel, padrao) in BUCKETS.items()
@@ -213,6 +217,10 @@ class ArmazenamentoObjectStorage:
         return documentos
 
     def excluir_documento(self, categoria: str, chave: str) -> dict:
+        with self._lock_revisao:
+            return self._excluir_documento(categoria, chave)
+
+    def _excluir_documento(self, categoria: str, chave: str) -> dict:
         bucket, prefixo = self._destino_categoria(categoria)
         validar_chave(chave)
         resultado = f"{prefixo}{chave}{SUFIXO_TRIAGEM}"
@@ -222,12 +230,20 @@ class ArmazenamentoObjectStorage:
             if str(erro.response.get("Error", {}).get("Code")) in {"NoSuchKey", "404", "NotFound"}:
                 raise DocumentoNaoEncontrado(chave) from erro
             raise
-        objetos = [
-            {"bucket": self._bucket_auditoria(), "objeto": f"{PASTA_AUDITORIA}/{chave}{SUFIXO_DECISAO}"},
+        # Remove primeiro as triagens associadas, incluindo o histórico da IA.
+        # A decisão permanece enquanto esse histórico puder aparecer na fila.
+        objetos = []
+        for outra_categoria in DESTINOS:
+            outro_bucket, outro_prefixo = self._destino_categoria(outra_categoria)
+            outro_resultado = f"{outro_prefixo}{chave}{SUFIXO_TRIAGEM}"
+            if (outro_bucket, outro_resultado) != (bucket, resultado):
+                objetos.append({"bucket": outro_bucket, "objeto": outro_resultado})
+        objetos.extend([
             {"bucket": self._bucket_auditoria(), "objeto": f"{PASTA_AUDITORIA}/{chave}"},
             {"bucket": self.buckets["recebidos"], "objeto": chave},
+            {"bucket": self._bucket_auditoria(), "objeto": f"{PASTA_AUDITORIA}/{chave}{SUFIXO_DECISAO}"},
             {"bucket": bucket, "objeto": resultado},
-        ]
+        ])
         removidos = []
         # O resultado fica por último: uma falha mantém o documento localizável.
         for indice, objeto in enumerate(objetos):
@@ -283,7 +299,12 @@ class ArmazenamentoObjectStorage:
             nome = objeto[len(prefixo):]
             if nome.endswith(SUFIXO_TRIAGEM):
                 chave = nome[: -len(SUFIXO_TRIAGEM)]
-                chaves[chave] = f"{prefixo}{chave}{SUFIXO_DECISAO}" in objetos
+                try:
+                    decisao = self.ler_decisao(chave) if f"{prefixo}{chave}{SUFIXO_DECISAO}" in objetos else None
+                except (ValueError, UnicodeDecodeError):
+                    log.warning("Decisão ilegível na auditoria: chave=%s", chave)
+                    decisao = None
+                chaves[chave] = isinstance(decisao, dict) and decisao.get("estado") != "pendente"
         return chaves
 
     def ler_resultado(self, chave: str) -> dict:
@@ -315,12 +336,141 @@ class ArmazenamentoObjectStorage:
         validar_chave(chave)
         # A OCI não garante gravação condicional pela API S3; a checagem prévia
         # cobre o uso normal (um revisor por documento) e o log registra o resto.
-        if self.ler_decisao(chave) is not None:
-            raise DecisaoJaRegistrada(chave)
+        with self._lock_revisao:
+            if self.ler_decisao(chave) is not None:
+                raise DecisaoJaRegistrada(chave)
+            self._gravar_decisao(chave, decisao)
+
+    def _gravar_decisao(self, chave: str, decisao: dict) -> None:
         self._enviar(
             DESTINOS["ambiguidade"], f"{chave}{SUFIXO_DECISAO}",
             serializar_decisao(decisao), "application/json",
         )
+
+    def encaminhar_documento(
+        self, chave: str, destino: str, departamento: str, revisor: str,
+        observacao: str = "", dados_corrigidos: dict | None = None,
+    ) -> dict:
+        # Evita que requisições concorrentes deste processo regravem a reserva do alerta.
+        with self._lock_revisao:
+            return self._encaminhar_documento(chave, destino, departamento, revisor, observacao, dados_corrigidos)
+
+    def _encaminhar_documento(
+        self, chave: str, destino: str, departamento: str, revisor: str,
+        observacao: str = "", dados_corrigidos: dict | None = None,
+    ) -> dict:
+        """Grava o resultado revisado sem alterar a triagem original da auditoria.
+
+        As gravações não são atômicas entre buckets. O registro pendente permite
+        repetir a mesma decisão; decisões antigas ou diferentes não são alteradas.
+        """
+        validar_chave(chave)
+        if destino not in ("rotina", "urgencia"):
+            raise ValueError("O destino deve ser rotina ou urgencia")
+        if any(not isinstance(valor, str) or not valor.strip() for valor in (departamento, revisor)):
+            raise ValueError("Informe o departamento e o revisor")
+        if not isinstance(observacao, str):
+            raise ValueError("A observação deve ser um texto")
+        if dados_corrigidos is not None and not isinstance(dados_corrigidos, dict):
+            raise ValueError("Os dados corrigidos devem ser um objeto JSON")
+        entrada = {
+            "acao": "encaminhar", "destino": destino,
+            "departamento": departamento.strip(), "revisor": revisor.strip(),
+            "observacao": observacao.strip(),
+            "dados_corrigidos": dados_corrigidos,
+        }
+        decisao = self.ler_decisao(chave)
+        if decisao is not None:
+            if not isinstance(decisao, dict):
+                raise ValueError("O registro da revisão deve ser um objeto JSON")
+            if any(decisao.get(campo) != valor for campo, valor in entrada.items()):
+                raise DecisaoJaRegistrada(chave)
+            if decisao.get("estado") == "concluido":
+                return decisao
+            if decisao.get("estado") != "pendente":
+                raise DecisaoJaRegistrada(chave)
+
+        original = self.ler_resultado(chave)
+        if not isinstance(original, dict) or original.get("classificacao") != "ambiguidade":
+            raise ValueError("A triagem original deve estar em ambiguidade")
+        resultado = {
+            **original, "classificacao": destino,
+            "dados_extraidos": dados_corrigidos if dados_corrigidos is not None else original["dados_extraidos"],
+            "destino_principal": entrada["departamento"], "alerta_enviado": False,
+            "justificativa": (
+                f"{original.get('justificativa', '')}\n"
+                f"Revisão humana por {entrada['revisor']}: encaminhado para {destino}."
+                + (f" Observação: {entrada['observacao']}" if entrada["observacao"] else "")
+            ).strip(),
+        }
+        serializar_resultado(resultado)  # Valida antes de criar o registro pendente.
+        etapa = "registrar_decisao"
+        try:
+            if decisao is None:
+                decisao = {
+                    **entrada, "documento_id": original["documento_id"],
+                    "classificacao_original": "ambiguidade", "estado": "pendente",
+                    "iniciado_em": datetime.now(timezone.utc).isoformat(),
+                }
+                self.salvar_decisao(chave, decisao)
+
+            etapa = "preservar_original"
+            if not self._original_disponivel(destino, chave):
+                self.salvar_original(chave, self.ler_original("ambiguidade", chave))
+
+            etapa = "salvar_resultado"
+            bucket, prefixo = self._destino_categoria(destino)
+            existente = self._ler(f"{prefixo}{chave}{SUFIXO_TRIAGEM}", bucket)
+            if existente is None:
+                self.salvar_resultado(chave, resultado, self.ler_metadados_revisao(chave))
+            elif json.loads(existente) != resultado:
+                raise DecisaoJaRegistrada(chave)
+
+            etapa = "concluir_decisao"
+            concluida = {
+                **decisao, "estado": "concluido",
+                "decidido_em": datetime.now(timezone.utc).isoformat(),
+            }
+            self._gravar_decisao(chave, concluida)
+        except DecisaoJaRegistrada:
+            raise
+        except Exception as erro:
+            log.warning("Encaminhamento pendente: chave=%s etapa=%s (%s)",
+                        chave, etapa, type(erro).__name__)
+            raise FalhaEncaminhamentoDocumento(etapa) from erro
+        log.info("Encaminhamento concluído: chave=%s destino=%s", chave, destino)
+        return concluida
+
+    def iniciar_alerta_revisao(self, chave: str) -> dict | None:
+        """Reserva a tentativa antes do webhook; repetições não reenviam o alerta."""
+        with self._lock_revisao:
+            decisao = self.ler_decisao(chave)
+            if not decisao or decisao.get("estado") != "concluido" or decisao.get("destino") != "urgencia":
+                raise ValueError("O encaminhamento urgente deve estar concluído")
+            if decisao.get("alerta_status") is not None:
+                return None
+            resultado = self.consultar_documento("urgencia", chave)["resultado"]
+            if resultado is None:
+                raise ValueError("Resultado encaminhado ilegível")
+            self._gravar_decisao(chave, {**decisao, "alerta_status": "em_envio"})
+            return resultado
+
+    def concluir_alerta_revisao(self, chave: str, enviado: bool) -> None:
+        with self._lock_revisao:
+            self._concluir_alerta_revisao(chave, enviado)
+
+    def _concluir_alerta_revisao(self, chave: str, enviado: bool) -> None:
+        decisao = self.ler_decisao(chave)
+        if not decisao or decisao.get("alerta_status") != "em_envio":
+            raise ValueError("Não há tentativa de alerta reservada")
+        if enviado:
+            resultado = self.consultar_documento("urgencia", chave)["resultado"]
+            self.salvar_resultado(
+                chave, {**resultado, "alerta_enviado": True}, self.ler_metadados_revisao(chave),
+            )
+        self._gravar_decisao(chave, {
+            **decisao, "alerta_status": "enviado" if enviado else "falha",
+        })
 
 
 @lru_cache(maxsize=1)

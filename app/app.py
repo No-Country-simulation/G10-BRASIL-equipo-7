@@ -7,6 +7,7 @@ A API decide entre simulação e agente real pela variável AGENT_MODE.
 import html
 import json
 import os
+from pathlib import Path
 import re
 from urllib.parse import quote
 
@@ -14,82 +15,18 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 
+from cliente_api import chamar_documentos, mensagem_de_erro, triar
+from revisao import render_dados_revisao, render_revisao
+
 load_dotenv()
 
+ASSETS = Path(__file__).resolve().parent / "assets"
+
 # Layout largo (legenda em 3 colunas e cards lado a lado);
-st.set_page_config(page_title="MediFlow", layout="wide")
+st.set_page_config(page_title="MediFlow", page_icon=str(ASSETS / "mediflow-icone.png"), layout="wide")
+st.logo(str(ASSETS / "mediflow-logo.png"), size="large", icon_image=str(ASSETS / "mediflow-icone.png"))
 
 ROTULO = {"rotina": "ROTINA", "urgencia": "URGÊNCIA", "ambiguidade": "AMBIGUIDADE"}
-CAMPOS_RESPOSTA = (
-    "documento_id",
-    "classificacao",
-    "destino_principal",
-    "score_confianca",
-    "justificativa",
-    "alerta_enviado",
-    "dados_extraidos",
-)
-# A API tenta o agente duas vezes (30 s cada), então o cliente espera um pouco mais.
-TIMEOUT_SEGUNDOS = 75
-FORMATOS_ACEITOS = "PDF, PNG, JPG, JPEG ou JSON"
-
-MENSAGENS_HTTP = {
-    400: "O arquivo está vazio. Escolha outro documento.",
-    415: f"Formato de arquivo não aceito. Envie {FORMATOS_ACEITOS}.",
-    422: "A API não aceitou a requisição. Confira o arquivo e o canal de origem.",
-}
-
-
-def url_api():
-    return os.getenv("API_URL", "http://localhost:8000").rstrip("/")
-
-
-def triar(arquivo, canal):
-    """Envia o arquivo para POST /triagem e devolve o JSON de triagem."""
-    dados = {"canal_origem": canal}
-    resposta = requests.post(
-        f"{url_api()}/triagem",
-        files={
-            "arquivo": (
-                arquivo.name,
-                arquivo.getvalue(),
-                arquivo.type or "application/octet-stream",
-            )
-        },
-        data=dados,
-        timeout=TIMEOUT_SEGUNDOS,
-    )
-    resposta.raise_for_status()
-    resultado = resposta.json()
-    if not isinstance(resultado, dict):
-        raise ValueError("A resposta de triagem deve conter um objeto JSON")
-    faltando = [c for c in CAMPOS_RESPOSTA if c not in resultado]
-    if faltando:
-        raise ValueError(f"campos ausentes na resposta: {', '.join(faltando)}")
-    if resultado["classificacao"] not in ROTULO:
-        raise ValueError(f"rota desconhecida: {resultado['classificacao']!r}")
-    return resultado
-
-
-def mensagem_de_erro(erro):
-    """Traduz uma falha da chamada à API em uma mensagem que o usuário entende."""
-    if isinstance(erro, requests.exceptions.ConnectionError):
-        return (
-            f"Não foi possível conectar à API em {url_api()}. "
-            "Verifique se o servidor está rodando."
-        )
-    if isinstance(erro, requests.exceptions.Timeout):
-        return "A triagem demorou mais que o esperado. Tente novamente em instantes."
-    if isinstance(erro, requests.exceptions.HTTPError):
-        status = erro.response.status_code if erro.response is not None else None
-        if status in MENSAGENS_HTTP:
-            return MENSAGENS_HTTP[status]
-        if status is not None and status >= 500:
-            return f"A API teve um erro interno (código {status}). Tente novamente."
-        return f"A API recusou a requisição (código {status})."
-    if isinstance(erro, ValueError):
-        return "A API devolveu uma resposta em formato inesperado."
-    return "Não foi possível concluir a triagem."
 
 
 def formatar_valor(valor):
@@ -190,233 +127,7 @@ def icone(nivel, tamanho=36):
     )
 
 
-ESTILOS = """
-<style>
-:root { color-scheme: light; }
-html { font-size: 18px; }                 /* textos grandes (acessibilidade) */
-
-/* ---------- Página ---------- */
-.stApp {
-    background: #f4f6f8;
-    color: #14202b;
-    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-}
-[data-testid="stHeader"] { background: transparent; }
-[data-testid="stMainBlockContainer"], .block-container {
-    max-width: 1152px; padding: 1.5rem 1.5rem 3rem;
-}
-[data-testid="stHeaderActionElements"] { display: none; }  /* ícone de âncora nos títulos */
-footer { visibility: hidden; }
-
-/* ---------- Cabeçalho ---------- */
-.marca {
-    display: flex; align-items: center; gap: 1rem;
-    padding-bottom: 1.1rem; margin-bottom: 1.5rem;
-    border-bottom: 2px solid #e2e8f0;
-}
-.marca-icone {
-    width: 3.5rem; height: 3.5rem; flex: 0 0 auto; display: grid;
-    place-items: center; border-radius: .75rem; background: #1e40af; color: #fff;
-}
-.marca h1 { font-size: 1.75rem; line-height: 1.1; margin: 0; padding: 0; font-weight: 800; color: #14202b; }
-.marca p { margin: .25rem 0 0; color: #475569; }
-
-/* ---------- Categorias (3 cartões clicáveis) ---------- */
-[class*="st-key-categoria_"] button[data-testid] {
-    min-height: 5.25rem; justify-content: flex-start; gap: .75rem;
-    padding: .75rem; background: #fff; border: 2px solid #e2e8f0;
-    border-radius: .75rem; text-align: left;
-}
-[class*="st-key-categoria_"] button > div,
-[class*="st-key-categoria_"] [data-has-shortcut] {
-    width: 100%; justify-content: flex-start; gap: .75rem;
-}
-[class*="st-key-categoria_"] span:has(> [data-testid="stIconMaterial"]) {
-    width: 3rem; height: 3rem; flex: 0 0 3rem;
-}
-[class*="st-key-categoria_"] [data-testid="stIconMaterial"] {
-    width: 3rem; height: 3rem; flex: 0 0 3rem; padding: 0;
-    display: grid; place-items: center; border-radius: 999px;
-    font-size: 1.7rem; line-height: 1;
-}
-[class*="st-key-categoria_"] button p { color: #475569; font-size: .88rem; }
-[class*="st-key-categoria_"] button strong { color: #14202b; font-size: 1rem; }
-
-/* ---------- Cards: st.container(key="card_...") gera a classe .st-key-card_... ---------- */
-[class*="st-key-card_"] {
-    background: #fff; border: 2px solid #e2e8f0; border-radius: 1rem;
-    padding: 1.4rem; box-shadow: 0 1px 2px rgb(15 23 42 / .05);
-}
-.titulo-secao { font-size: 1.5rem; font-weight: 800; margin: 0 0 1rem; padding: 0; color: #14202b; line-height: 1.2; }
-/* "Como funciona": o Streamlit põe recuo extra no h2 e margem negativa no fim do markdown;
-   ambos são zerados para o conteúdo ficar centralizado na caixa. Passos = bolinha + texto. */
-.st-key-card_como { gap: .6rem; padding: 1.9rem 1.6rem; }
-.st-key-card_como [data-testid="stMarkdownContainer"] > * { margin-top: 0 !important; margin-bottom: 0 !important; }
-.st-key-card_como .titulo-secao { font-size: 1.2rem; padding: 0 !important; margin: 0 0 .9rem !important; }
-.passos { list-style: none; margin: 0; padding: 0; counter-reset: passo; }
-.passos li {
-    counter-increment: passo; display: flex; align-items: flex-start; gap: .75rem;
-    margin: 0 0 .85rem; padding: 0; font-size: 1rem; line-height: 1.4; color: #334155;
-}
-.passos li:last-child { margin-bottom: 0; }
-.passos li::before {
-    content: counter(passo); flex: 0 0 1.9rem; width: 1.9rem; height: 1.9rem; margin-top: -.1rem;
-    display: grid; place-items: center; border-radius: 999px;
-    background: #dbeafe; color: #1e40af; font-weight: 800; font-size: .95rem;
-}
-
-/* ---------- Formulário ---------- */
-[data-testid="stWidgetLabel"] p { font-size: 1.1rem; font-weight: 600; }
-/* Uploader: só a CAIXA é estilizada. Textos e botões internos (Upload, "x" de remover) são
-   nativos: estilizar qualquer <button> da área quebra o layout com e sem arquivo. */
-[data-testid="stFileUploaderDropzone"] {
-    border: 4px dashed #94a3b8; border-radius: 1rem; background: #f8fafc;
-    /* área maior, para ter destaque na página */
-    min-height: 9.5rem; padding: 1.75rem 1.5rem;
-}
-[data-testid="stFileUploaderDropzone"]:hover { border-color: #1d4ed8; background: #eff6ff; }
-/* arquivo escolhido -> caixa verde (como no Figma) */
-[data-testid="stFileUploader"]:has([data-testid="stFileUploaderFile"]) [data-testid="stFileUploaderDropzone"] {
-    border-color: #15803d; background: #f0fdf4;
-}
-/* Upload centralizado (botão no meio, descrição abaixo). Vale só SEM arquivo escolhido;
-   "> button" pega apenas o botão Upload (filho direto), nunca o "x" do arquivo. */
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"] {
-    flex-direction: column; align-items: center; justify-content: center; gap: 1rem; text-align: center;
-}
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzoneInstructions"] {
-    order: 2; margin: 0 !important; align-items: center; text-align: center;
-}
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"] > button {
-    order: 1; min-height: 3.6rem; padding: 0 2.25rem; border: 2px solid #94a3b8; border-radius: .75rem; background: #fff;
-}
-/* botão Upload um pouco maior (texto e ícone) */
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"] > button,
-[data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"] > button * {
-    font-size: 1.15rem !important; font-weight: 700;
-}
-/* dica em português acima do uploader */
-.dica { margin: 0 0 .5rem; color: #475569; font-size: .95rem; line-height: 1.4; }
-.stSelectbox [data-baseweb="select"] > div {
-    min-height: 3.5rem; border: 2px solid #94a3b8; border-radius: .75rem; font-size: 1.1rem;
-}
-
-/* ---------- Botões ---------- */
-.stButton > button {
-    min-height: 3.5rem; border-radius: .75rem; font-weight: 800; font-size: 1.1rem;
-}
-.stButton > button[kind="primary"], .stButton > button[data-testid="stBaseButton-primary"] {
-    background: #1e40af; border: 2px solid #1e40af; color: #fff;
-}
-.stButton > button[kind="primary"]:hover, .stButton > button[data-testid="stBaseButton-primary"]:hover {
-    background: #1e3a8a; border-color: #1e3a8a;
-}
-.stButton > button[kind="primary"] *, .stButton > button[data-testid="stBaseButton-primary"] * { color: #fff !important; }
-/* Botões grandes: o Streamlit limita a largura do contêiner e define a fonte no <p> interno,
-   por isso largura e fonte são ajustadas nos três níveis. */
-.st-key-enviar, .st-key-enviar [data-testid="stButton"], .st-key-enviar button,
-.st-key-tentar_novamente, .st-key-tentar_novamente [data-testid="stButton"], .st-key-tentar_novamente button {
-    width: 100%;
-}
-.st-key-enviar button, .st-key-reiniciar button, .st-key-tentar_novamente button { min-height: 4.75rem; }
-.st-key-enviar button p, .st-key-reiniciar button p, .st-key-tentar_novamente button p {
-    font-size: 1.4rem !important; font-weight: 800 !important;
-}
-.st-key-reiniciar, .st-key-reiniciar [data-testid="stButton"], .st-key-reiniciar button { width: 100%; }
-@media (min-width: 641px) {
-    .st-key-reiniciar, .st-key-reiniciar [data-testid="stButton"], .st-key-reiniciar button { width: auto; }
-    .st-key-reiniciar button { padding: 0 3rem; }
-}
-.rotulo-json { display:block; color:#475569; font-size:.75rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }
-/* botão secundário "Ver JSON em tela cheia" */
-.st-key-json_popup button { min-height: 3.25rem; border: 2px solid #94a3b8; border-radius: .75rem; background: #fff; }
-.st-key-json_popup button p { font-size: 1.05rem !important; font-weight: 700 !important; }
-
-/* "Dados extraídos" e "Triagem" terminam na mesma linha: as colunas esticam e cada cartão
-   ocupa 100% da altura da sua coluna (o cartão menor cresce até alcançar o maior). */
-[data-testid="stHorizontalBlock"]:has(.st-key-card_dados) { align-items: stretch !important; }
-/* a própria coluna não leva height: com height definido ela deixaria de esticar */
-:is([data-testid="stColumn"], [data-testid="column"]):has(.st-key-card_dados) :has(.st-key-card_dados),
-:is([data-testid="stColumn"], [data-testid="column"]):has(.st-key-card_triagem) :has(.st-key-card_triagem),
-.st-key-card_dados, .st-key-card_triagem { height: 100%; box-sizing: border-box; }
-
-/* ---------- Mensagens e expander (detalhes técnicos de erro) ---------- */
-[data-testid="stAlert"] { border-radius: .75rem; font-size: 1.05rem; font-weight: 600; }
-[data-testid="stExpander"] { border: 2px solid #94a3b8; border-radius: .75rem; background: #fff; }
-[data-testid="stExpander"] summary { font-weight: 700; }
-
-/* ---------- Carregando ---------- */
-.carregando {
-    padding: 3rem 1.5rem; text-align: center; background: #fff;
-    border: 2px solid #e2e8f0; border-radius: 1rem;
-}
-.carregando h2 { margin: .75rem 0 .2rem; padding: 0; font-size: 1.5rem; font-weight: 800; color: #14202b; }
-.carregando p { margin: 0; color: #475569; }
-.giro {
-    width: 3.5rem; height: 3.5rem; margin: auto; border-radius: 50%;
-    border: .5rem solid #e2e8f0; border-top-color: #1e40af; animation: giro .8s linear infinite;
-}
-@keyframes giro { to { transform: rotate(360deg); } }
-
-/* ---------- Resultado ---------- */
-.banner {
-    padding: 1.6rem; border-radius: 1rem; background: var(--bg);
-    margin-bottom: 1.5rem; color: var(--icone);
-}
-.banner, .banner * { color: var(--icone) !important; }
-.banner.urgente { box-shadow: 0 0 0 8px #fecaca; }   /* anel vermelho de destaque */
-.banner-topo { display: flex; align-items: center; gap: 1.25rem; }
-.banner-topo small { display: block; font-size: 1.05rem; font-weight: 600; letter-spacing: .03em; }
-.banner-topo h2 {
-    font-size: clamp(2.2rem, 7vw, 3.2rem); line-height: 1; margin: .2rem 0;
-    padding: 0; font-weight: 900; letter-spacing: -.01em;
-}
-.banner-topo h3 { font-size: 1.4rem; margin: 0; padding: 0; font-weight: 800; }
-.banner > p { margin: 1rem 0 0; font-weight: 600; font-size: 1.05rem; }
-.banner svg { flex: 0 0 auto; }
-
-.id-doc { color: #475569; font-size: .8rem; word-break: break-all; margin: 0 0 .75rem; }
-.campo { padding: .85rem 1rem; margin-top: .65rem; border-radius: .75rem; background: #f8fafc; }
-.campo small {
-    display: block; color: #475569; font-size: .72rem; font-weight: 800;
-    letter-spacing: .05em; text-transform: uppercase;
-}
-.campo strong { display: block; margin-top: .1rem; font-size: 1.1rem; overflow-wrap: anywhere; }
-
-.confianca-topo {
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: .75rem; margin-bottom: .4rem;
-}
-.confianca-topo strong:first-child { font-size: 1.05rem; }
-.confianca-topo strong:last-child { font-size: 1.5rem; font-weight: 800; }
-.confianca-topo small { font-size: .9rem; font-weight: 600; color: #475569; }
-.barra { height: 1.1rem; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
-.barra > div { height: 100%; border-radius: inherit; background: var(--borda); }
-.bruto { color: #64748b; font-size: .78rem; margin: .3rem 0 1rem; }
-.justificativa {
-    padding: .9rem 1rem; border-left: .5rem solid var(--borda);
-    border-radius: .65rem; background: var(--soft); margin-bottom: 1rem;
-}
-.justificativa small {
-    color: var(--tinta); font-weight: 800; font-size: .75rem;
-    letter-spacing: .05em; text-transform: uppercase;
-}
-.justificativa p { margin: .2rem 0 0; font-size: 1.1rem; font-weight: 700; }
-
-/* ---------- Celular ---------- */
-@media (max-width: 640px) {
-    html { font-size: 16px; }
-    [data-testid="stMainBlockContainer"], .block-container { padding: 1rem 1rem 2rem; }
-    .marca p { font-size: .85rem; }
-    .banner { padding: 1.25rem; }
-    .banner-topo { gap: .9rem; }
-    .banner-topo svg { width: 3.5rem; height: 3.5rem; }
-    .banner-topo h2 { font-size: 1.75rem; }          /* "AMBIGUIDADE" cabe em 360 px */
-    .banner-topo h3 { font-size: 1.15rem; }
-    [class*="st-key-card_"] { padding: 1rem; }
-}
-</style>
-"""
+ESTILOS = "\n<style>\n" + Path(__file__).with_name("styles.css").read_text(encoding="utf-8") + "</style>\n"
 
 
 class ArquivoEnviado:
@@ -461,54 +172,37 @@ def altura_caixa_json(resultado):
 
 
 def render_cabecalho():
-    mostrar_html(
-        f"""
-        <header class="marca">
-            <div class="marca-icone">
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-                     aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            </div>
-            <div>
-                <h1>MediFlow</h1>
-                <p>Triagem de documentos médicos. Somente dados fictícios.</p>
-            </div>
-        </header>
-        """
-    )
+    with st.container(key="marca", horizontal=True, wrap=False, vertical_alignment="center", gap="medium"):
+        st.image(str(ASSETS / "mediflow-icone.png"), width=64)
+        with st.container():
+            mostrar_html("<h1>MediFlow</h1><p>Triagem de documentos médicos.</p>")
 
 
-def render_legenda(ativo=None):
+def render_legenda(ativo=None, contagens=None):
     """Abre a consulta da categoria pela API, mantendo as cores dos cartões."""
     colunas = st.columns(3)
     icones = {"urgencia": "warning", "rotina": "check_circle", "ambiguidade": "help"}
     for coluna, nivel in zip(colunas, ("urgencia", "rotina", "ambiguidade")):
         t = TEMA[nivel]
+        quantidade = (contagens or {}).get(nivel)
+        descricao = t["acao"] if quantidade is None else f"{quantidade} documento{'s' if quantidade != 1 else ''}"
         with coluna:
             st.html(
                 f"<style>.st-key-categoria_{nivel} button[data-testid] {{border-color: {t['borda'] if ativo == nivel else '#e2e8f0'};}}"
                 f".st-key-categoria_{nivel} [data-testid='stIconMaterial'] {{background: {t['bg']}; color: {t['icone']};}}"
                 f".st-key-categoria_{nivel} button[data-testid]:hover {{border-color: {t['borda']};}}</style>"
             )
-            if st.button(f"**{ROTULO[nivel]}**  \n{t['acao']}", key=f"categoria_{nivel}",
+            if st.button(f"**{ROTULO[nivel]}**  \n{descricao}", key=f"categoria_{nivel}",
                          icon=f":material/{icones[nivel]}:", width="stretch",
                          disabled=st.session_state.get("carregando", False)):
                 st.session_state["categoria_documentos"] = nivel
                 limpar_documento_aberto()
-                st.rerun()
+                st.switch_page(PAGINA_DOCUMENTOS)
 
 
 def limpar_documento_aberto():
-    for chave in ("original_documento", "exclusao_documento"):
+    for chave in ("original_documento", "erro_original_documento", "exclusao_documento"):
         st.session_state.pop(chave, None)
-
-
-def chamar_documentos(metodo, caminho="", **parametros):
-    resposta = getattr(requests, metodo)(
-        f"{url_api()}/documentos{caminho}", timeout=30, **parametros
-    )
-    resposta.raise_for_status()
-    return resposta
 
 
 def mostrar_erro_documentos(erro):
@@ -531,85 +225,278 @@ def mostrar_erro_documentos(erro):
         st.code(str(erro))
 
 
-def mostrar_original(conteudo, nome):
+def mostrar_original(conteudo, nome, altura=480):
     extensao = nome.rsplit(".", 1)[-1].lower()
     try:
-        if extensao in ("png", "jpg", "jpeg"):
-            st.image(conteudo, width="stretch")
-        elif extensao == "json":
-            st.json(json.loads(conteudo))
-        elif extensao == "pdf":
-            st.pdf(conteudo, height=620, alt="Documento original em PDF")
+        if extensao == "pdf":
+            st.pdf(conteudo, height=altura, alt="Documento original em PDF")
+        else:
+            with st.container(height=altura, border=False, key=f"previa_original_{altura}"):
+                if extensao in ("png", "jpg", "jpeg"):
+                    st.image(conteudo, width="stretch")
+                elif extensao == "json":
+                    st.json(json.loads(conteudo))
+                else:
+                    st.info("Prévia indisponível para este formato. Use o download.")
     except (ValueError, OSError):
         st.warning("Não foi possível visualizar este formato. Use o download do original.")
-    st.download_button("Baixar original", conteudo, file_name=nome, on_click="ignore")
+
+
+@st.dialog("Documento original", width="large")
+def mostrar_original_ampliado(conteudo, nome):
+    st.caption(nome)
+    mostrar_original(conteudo, nome, altura=700)
+
+
+def render_previa_documento(categoria, chave, caminho, detalhe):
+    if not detalhe.get("original_disponivel"):
+        st.session_state.pop("original_documento", None)
+        st.info("Original indisponível nos buckets.")
+        return
+    identidade = (categoria, chave)
+    original = st.session_state.get("original_documento")
+    erro = st.session_state.get("erro_original_documento")
+    if not (original and original[:2] == identidade) and not (erro and erro[:2] == identidade):
+        try:
+            with st.spinner("Carregando original…"):
+                resposta = chamar_documentos("get", caminho + "/original")
+            original = (*identidade, resposta.content)
+            st.session_state["original_documento"] = original
+            st.session_state.pop("erro_original_documento", None)
+            erro = None
+        except requests.RequestException as falha:
+            erro = (*identidade, str(falha))
+            st.session_state["erro_original_documento"] = erro
+    if erro and erro[:2] == identidade:
+        st.error("Não foi possível carregar o original. Tente novamente.")
+        with st.expander("Detalhes da prévia"):
+            st.code(erro[2])
+        if st.button("Tentar novamente", key="recarregar_original"):
+            st.session_state.pop("erro_original_documento", None)
+            st.rerun()
+        return
+    nome = detalhe.get("nome") or chave
+    mostrar_original(original[2], nome)
+    ampliar, baixar = st.columns(2)
+    if ampliar.button("Ampliar", icon=":material/open_in_full:", width="stretch"):
+        mostrar_original_ampliado(original[2], nome)
+    baixar.download_button("Baixar original", original[2], file_name=nome,
+                            on_click="ignore", width="stretch")
+
+
+def render_lista_documentos(itens, categoria):
+    if st.session_state.get("limpar_busca_documentos") == categoria:
+        st.session_state.pop(f"busca_{categoria}", None)
+        st.session_state.pop("limpar_busca_documentos", None)
+    st.caption(f"{len(itens)} documento{'s' if len(itens) != 1 else ''}")
+    busca = st.text_input("Buscar pelo nome", placeholder="Buscar pelo nome",
+                          key=f"busca_{categoria}", label_visibility="collapsed")
+    rotulos, repeticoes = {}, {}
+    for item in itens:
+        nome = item.get("nome") or "Documento sem nome"
+        if nome == item["chave"] and re.fullmatch(r"[0-9a-fA-F]{32}\.[^.]+", nome):
+            nome = "Documento antigo" + os.path.splitext(nome)[1]
+        repeticoes[nome] = repeticoes.get(nome, 0) + 1
+        numero = repeticoes[nome]
+        rotulos[item["chave"]] = nome if numero == 1 else f"{nome} ({numero})"
+    filtrados = [chave for chave, nome in rotulos.items() if busca.strip().casefold() in nome.casefold()]
+    estado = f"selecionado_{categoria}"
+    if not filtrados:
+        st.session_state.pop(estado, None)
+        limpar_documento_aberto()
+        st.info("Nenhum arquivo encontrado." if itens else "Nenhum documento nesta categoria.")
+        return None
+    if st.session_state.get(estado) not in filtrados:
+        st.session_state[estado] = filtrados[0]
+        limpar_documento_aberto()
+    formatos = {
+        ".pdf": ("PDF", "Documento PDF", "description"),
+        ".png": ("PNG", "Imagem PNG", "image"),
+        ".jpg": ("JPG", "Imagem JPEG", "image"),
+        ".jpeg": ("JPEG", "Imagem JPEG", "image"),
+        ".json": ("JSON", "Documento JSON", "data_object"),
+    }
+    with st.container(height=440, border=False, key="lista_arquivos"):
+        for chave in filtrados:
+            item = next(item for item in itens if item["chave"] == chave)
+            extensao = Path(item.get("nome") or chave).suffix.lower()
+            tipo, descricao, icone_arquivo = formatos.get(extensao, (extensao.lstrip(".").upper() or "Arquivo", "Arquivo", "draft"))
+            titulo = "".join("\\" + c if c in "\\`*_{}[]<>()#+.!|~>" else c for c in rotulos[chave])
+            rotulo = f"**{titulo}**  \n{tipo} · {descricao}"
+            if item.get("prioridade_revisao") == "alta":
+                rotulo += " · Revisão prioritária"
+            if st.button(rotulo, key=f"arquivo_{categoria}_{chave}",
+                         icon=f":material/{icone_arquivo}:", width="stretch", help=rotulos[chave],
+                         type="primary" if chave == st.session_state[estado] else "secondary"):
+                if chave != st.session_state[estado]:
+                    st.session_state[estado] = chave
+                    limpar_documento_aberto()
+                    st.rerun()
+    return st.session_state[estado]
+
+
+def render_campo_resumo(titulo, valor):
+    texto = formatar_valor(valor)
+    texto = "Não informado" if texto == "não informado" else texto
+    texto_html = "<br>".join(esc(texto).splitlines())
+    mostrar_html(f'<div class="resumo-campo"><small>{esc(titulo)}</small>'
+                 f'<strong>{texto_html}</strong></div>')
+
+
+def render_resumo_documento(detalhe, categoria, chave):
+    resultado = detalhe.get("resultado")
+    abas = st.tabs(["Resumo", "JSON", "Revisão"] if categoria == "ambiguidade" else ["Resumo", "JSON"])
+    resumo, bruto = abas[:2]
+    if categoria == "ambiguidade":
+        with abas[2]:
+            render_revisao(chave, detalhe)
+    with bruto:
+        st.json(resultado)
+    with resumo:
+        if detalhe.get("erro"):
+            st.warning(detalhe["erro"])
+        if not isinstance(resultado, dict):
+            st.info("Resumo indisponível para esta triagem.")
+            return
+        rota = resultado.get("classificacao")
+        rota = rota if isinstance(rota, str) else None
+        if rota in TEMA:
+            tema = TEMA[rota]
+            mostrar_html(f'<div class="resumo-rota" style="background:{tema["soft"]};color:{tema["tinta"]}">'
+                         f'{icone(rota, 24)}<strong>{ROTULO[rota]}</strong></div>')
+        else:
+            render_campo_resumo("Rota", None)
+        render_campo_resumo("Encaminhado para", resultado.get("destino_principal"))
+        score = resultado.get("score_confianca")
+        if isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 1:
+            st.metric("Confiança da análise", f"{score:.0%}")
+            st.progress(float(score))
+        else:
+            render_campo_resumo("Confiança da análise", None)
+        decisao = detalhe.get("decisao")
+        revisado = isinstance(decisao, dict) and decisao.get("estado") == "concluido"
+        justificativa = detalhe.get("justificativa_original") if revisado else None
+        render_campo_resumo("Justificativa da análise automática" if revisado else "Justificativa",
+                           justificativa if justificativa is not None else resultado.get("justificativa"))
+        if revisado:
+            render_dados_revisao(decisao, render_campo_resumo)
+        if resultado.get("alerta_enviado") is True:
+            st.success("Alerta enviado.")
+        elif rota == "urgencia":
+            if resultado.get("alerta_enviado") is False:
+                st.warning("Alerta de urgência não enviado.")
+            else:
+                render_campo_resumo("Alerta de urgência", None)
+        st.markdown("#### Dados extraídos")
+        dados = resultado.get("dados_extraidos")
+        if isinstance(dados, dict) and dados:
+            for campo, valor in dados.items():
+                titulo = "Médico responsável" if campo == "medico_responsavel" else rotulo_campo(campo)
+                render_campo_resumo(titulo, valor)
+        else:
+            st.caption("Não informado")
 
 
 def render_documentos(categoria):
-    st.subheader(f"Documentos · {ROTULO[categoria]}")
-    if st.button("Voltar ao envio"):
-        st.session_state.pop("categoria_documentos", None)
-        st.session_state.pop("resultado", None)
+    titulo, atualizar, novo = st.columns([5, 1.5, 2])
+    titulo.subheader("Documentos")
+    titulo.caption("Consulte os arquivos e os resultados da triagem.")
+    if atualizar.button("Atualizar", icon=":material/refresh:", width="stretch"):
         limpar_documento_aberto()
         st.rerun()
-    if st.button("Atualizar lista"):
+    if novo.button("Novo documento", icon=":material/add:", type="primary", width="stretch"):
+        for chave in ("resultado", "erro", "pendente", "carregando"):
+            st.session_state.pop(chave, None)
         limpar_documento_aberto()
-        st.rerun()
+        st.switch_page(PAGINA_ENVIO)
     aviso = st.session_state.pop("aviso_documentos", None)
     if aviso:
         st.success(aviso)
+    erro_revisao = st.session_state.pop("erro_revisao", None)
+    if erro_revisao:
+        st.error(erro_revisao[1])
+    encaminhado = st.session_state.get("encaminhamento_concluido")
+    if encaminhado:
+        destino = encaminhado["destino"]
+        st.success(f"Documento encaminhado para {ROTULO[destino]}.")
+        if encaminhado.get("aviso"):
+            st.warning(encaminhado["aviso"])
+        elif destino == "urgencia" and encaminhado.get("alerta_status") != "enviado":
+            st.warning("Encaminhamento confirmado. O envio do alerta não foi confirmado.")
+        if st.button(f"Abrir {ROTULO[destino]}"):
+            st.session_state["categoria_documentos"] = destino
+            st.session_state.pop("encaminhamento_concluido", None)
+            limpar_documento_aberto()
+            st.rerun()
     try:
-        itens = chamar_documentos("get", params={"categoria": categoria}).json()
+        parametros = {"categoria": categoria}
+        if categoria == "ambiguidade":
+            parametros["situacao_revisao"] = "pendentes"
+        itens = chamar_documentos("get", params=parametros).json()
         if not isinstance(itens, list) or any(
             not isinstance(item, dict) or not isinstance(item.get("chave"), str) for item in itens
         ):
             raise ValueError("Lista de documentos em formato inesperado.")
-        if not itens:
-            st.info("Nenhum documento nesta categoria.")
-            return
-        rotulos, repeticoes = {}, {}
-        for item in itens:
-            nome = item.get("nome") or "Documento sem nome"
-            if nome == item["chave"] and re.fullmatch(r"[0-9a-fA-F]{32}\.[^.]+", nome):
-                nome = "Documento antigo" + os.path.splitext(nome)[1]
-            repeticoes[nome] = repeticoes.get(nome, 0) + 1
-            numero = repeticoes[nome]
-            rotulos[item["chave"]] = nome if numero == 1 else f"{nome} ({numero})"
-        chave = st.selectbox("Documento", list(rotulos), format_func=rotulos.get,
-                             key=f"documento_{categoria}", on_change=limpar_documento_aberto)
+    except (requests.RequestException, ValueError) as erro:
+        render_legenda(categoria, st.session_state.get("contagens_documentos"))
+        mostrar_erro_documentos(erro)
+        return
+    contagens = st.session_state.setdefault("contagens_documentos", {})
+    contagens[categoria] = len(itens)
+    render_legenda(categoria, contagens)
+    if st.session_state.pop("apos_encaminhamento", False):
+        limpar_documento_aberto()
+    col_arquivos, col_original, col_resultado = st.columns([25, 45, 30])
+    painel_arquivos = col_arquivos.container(border=True, key="painel_arquivos")
+    painel_original = col_original.container(border=True, key="painel_original")
+    painel_resultado = col_resultado.container(border=True, key="painel_resultado")
+    painel_arquivos.subheader("Arquivos")
+    painel_original.subheader("Documento original")
+    painel_resultado.subheader("Resultado da triagem")
+    with painel_arquivos:
+        chave = render_lista_documentos(itens, categoria)
+    if chave is None:
+        painel_original.info("Selecione um arquivo para visualizar o original.")
+        painel_resultado.info("Selecione um arquivo para consultar a triagem.")
+        return
+    try:
         caminho = f"/{categoria}/{quote(chave, safe='')}"
-        detalhe = chamar_documentos("get", caminho).json()
+        detalhe = chamar_documentos("get", caminho, params={"incluir_revisao": True}).json()
         if not isinstance(detalhe, dict) or "resultado" not in detalhe:
             raise ValueError("Detalhe do documento em formato inesperado.")
-        if detalhe.get("erro"):
-            st.warning(detalhe["erro"])
-        else:
-            st.markdown("#### JSON da triagem")
-            st.json(detalhe["resultado"])
-        if st.button("Visualizar original", disabled=not detalhe.get("original_disponivel")):
-            original = chamar_documentos("get", caminho + "/original")
-            st.session_state["original_documento"] = (categoria, chave, original.content)
-        original = st.session_state.get("original_documento")
-        if original and original[:2] == (categoria, chave):
-            mostrar_original(original[2], detalhe.get("nome") or chave)
-        if not detalhe.get("original_disponivel"):
-            st.caption("Original indisponível nos buckets.")
-        if st.button("Excluir documento"):
-            st.session_state["exclusao_documento"] = (categoria, chave)
-        if st.session_state.get("exclusao_documento") == (categoria, chave):
-            st.warning("Confirme a exclusão permanente do original, da triagem e dos registros associados da auditoria.")
-            st.code(f"Original: {detalhe.get('nome') or chave}\nTriagem: {chave}.triagem.json\n"
-                    "Cópia e decisão da auditoria, quando existirem.")
-            if st.button("Confirmar exclusão", type="primary"):
+        with painel_resultado:
+            render_resumo_documento(detalhe, categoria, chave)
+        with painel_original:
+            render_acoes_documento(categoria, chave, caminho, detalhe)
+    except (requests.RequestException, ValueError) as erro:
+        with painel_original:
+            mostrar_erro_documentos(erro)
+
+
+def render_acoes_documento(categoria, chave, caminho, detalhe):
+    render_previa_documento(categoria, chave, caminho, detalhe)
+    st.divider()
+    if st.button("Excluir documento", icon=":material/delete:", key="excluir_documento"):
+        st.session_state["exclusao_documento"] = (categoria, chave)
+    if st.session_state.get("exclusao_documento") == (categoria, chave):
+        st.warning("Confirme a exclusão permanente do original, das triagens e do histórico de revisão deste documento em todos os buckets.")
+        st.caption(f"Arquivo: {detalhe.get('nome') or 'Documento sem nome'}")
+        if st.button("Confirmar exclusão", type="primary"):
+            try:
                 chamar_documentos("delete", caminho)
+            except requests.RequestException as erro:
+                mostrar_erro_documentos(erro)
+            else:
                 limpar_documento_aberto()
+                st.session_state.pop("contagens_documentos", None)
+                st.session_state.pop("encaminhamento_concluido", None)
+                st.session_state.pop(f"selecionado_{categoria}", None)
+                st.session_state["limpar_busca_documentos"] = categoria
                 st.session_state["aviso_documentos"] = "Documento excluído dos buckets."
                 st.rerun()
-            if st.button("Cancelar exclusão"):
-                st.session_state.pop("exclusao_documento", None)
-                st.rerun()
-    except (requests.RequestException, ValueError) as erro:
-        mostrar_erro_documentos(erro)
+        if st.button("Cancelar exclusão"):
+            st.session_state.pop("exclusao_documento", None)
+            st.rerun()
 
 
 def render_envio():
@@ -778,20 +665,38 @@ def render_resultado(resultado):
         st.rerun()
 
 
-# --- Montagem da página -----------------------------------------------------
-st.markdown(ESTILOS, unsafe_allow_html=True)
-render_cabecalho()
+def pagina_envio():
+    st.markdown(ESTILOS, unsafe_allow_html=True)
+    render_cabecalho()
+    resultado = st.session_state.get("resultado")
+    render_legenda(resultado["classificacao"] if resultado else None)
+    st.write("")
+    if st.session_state.get("carregando") and "pendente" in st.session_state:
+        render_carregando()
+    elif resultado is None:
+        render_envio()
+    else:
+        render_resultado(resultado)
 
-resultado = st.session_state.get("resultado")
-categoria = st.session_state.get("categoria_documentos")
-render_legenda(categoria or (resultado["classificacao"] if resultado else None))
-st.write("")
 
-if categoria:
-    render_documentos(categoria)
-elif st.session_state.get("carregando") and "pendente" in st.session_state:
-    render_carregando()
-elif resultado is None:
-    render_envio()
-else:
-    render_resultado(resultado)
+def pagina_documentos():
+    st.markdown(ESTILOS, unsafe_allow_html=True)
+    categoria = st.session_state.setdefault("categoria_documentos", "ambiguidade")
+    with st.container(key="consulta_documentos"):
+        render_documentos(categoria)
+
+
+def redirecionar_auditoria():
+    st.session_state["categoria_documentos"] = "ambiguidade"
+    limpar_documento_aberto()
+    st.switch_page(PAGINA_DOCUMENTOS)
+
+
+# --- Navegação: o comando de inicialização continua sendo app/app.py. ---------
+PAGINA_ENVIO = st.Page(pagina_envio, title="Enviar documento", icon=":material/upload_file:", default=True)
+PAGINA_DOCUMENTOS = st.Page(pagina_documentos, title="Documentos", icon=":material/folder:", url_path="documentos")
+st.navigation([
+    PAGINA_ENVIO,
+    PAGINA_DOCUMENTOS,
+    st.Page(redirecionar_auditoria, title="Auditoria", url_path="Auditoria", visibility="hidden"),
+]).run()
