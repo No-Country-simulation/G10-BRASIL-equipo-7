@@ -23,6 +23,14 @@ footer { visibility: hidden; }
 .st-key-consulta_documentos [class*="st-key-painel_"] h3 { font-size: 1.1rem; }
 .st-key-painel_arquivos button { justify-content: flex-start; text-align: left; }
 .st-key-painel_arquivos button p { overflow-wrap: anywhere; }
+.resumo-rota { display: flex; align-items: center; gap: .5rem; padding: .6rem; border-radius: .5rem; }
+.resumo-campo { padding: .7rem 0; border-bottom: 1px solid #e2e8f0; }
+.resumo-campo small { display: block; color: #64748b; font-size: .8rem; }
+.resumo-campo strong { display: block; color: #14202b; font-size: .95rem; overflow-wrap: anywhere; }
+.st-key-excluir_documento button[data-testid] {
+    min-height: 2.5rem; color: #b91c1c; border-color: #fecaca; background: #fff;
+}
+.st-key-excluir_documento button p { font-size: .85rem; }
 .st-key-previa_original_480 [data-testid="stImage"] img {
     max-height: 440px; object-fit: contain;
 }

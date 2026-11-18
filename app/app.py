@@ -292,6 +292,9 @@ def render_previa_documento(categoria, chave, caminho, detalhe):
 
 
 def render_lista_documentos(itens, categoria):
+    if st.session_state.get("limpar_busca_documentos") == categoria:
+        st.session_state.pop(f"busca_{categoria}", None)
+        st.session_state.pop("limpar_busca_documentos", None)
     st.caption(f"{len(itens)} documento{'s' if len(itens) != 1 else ''}")
     busca = st.text_input("Buscar pelo nome", placeholder="Buscar pelo nome",
                           key=f"busca_{categoria}", label_visibility="collapsed")
@@ -323,6 +326,57 @@ def render_lista_documentos(itens, categoria):
                     limpar_documento_aberto()
                     st.rerun()
     return st.session_state[estado]
+
+
+def render_campo_resumo(titulo, valor):
+    texto = formatar_valor(valor)
+    texto = "Não informado" if texto == "não informado" else texto
+    mostrar_html(f'<div class="resumo-campo"><small>{esc(titulo)}</small>'
+                 f'<strong>{esc(texto)}</strong></div>')
+
+
+def render_resumo_documento(detalhe):
+    resultado = detalhe.get("resultado")
+    resumo, bruto = st.tabs(["Resumo", "JSON"])
+    with bruto:
+        st.json(resultado)
+    with resumo:
+        if detalhe.get("erro"):
+            st.warning(detalhe["erro"])
+        if not isinstance(resultado, dict):
+            st.info("Resumo indisponível para esta triagem.")
+            return
+        rota = resultado.get("classificacao")
+        rota = rota if isinstance(rota, str) else None
+        if rota in TEMA:
+            tema = TEMA[rota]
+            mostrar_html(f'<div class="resumo-rota" style="background:{tema["soft"]};color:{tema["tinta"]}">'
+                         f'{icone(rota, 24)}<strong>{ROTULO[rota]}</strong></div>')
+        else:
+            render_campo_resumo("Rota", None)
+        render_campo_resumo("Encaminhado para", resultado.get("destino_principal"))
+        score = resultado.get("score_confianca")
+        if isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 1:
+            st.metric("Confiança da análise", f"{score:.0%}")
+            st.progress(float(score))
+        else:
+            render_campo_resumo("Confiança da análise", None)
+        render_campo_resumo("Justificativa", resultado.get("justificativa"))
+        if resultado.get("alerta_enviado") is True:
+            st.success("Alerta enviado.")
+        elif rota == "urgencia":
+            if resultado.get("alerta_enviado") is False:
+                st.warning("Alerta de urgência não enviado.")
+            else:
+                render_campo_resumo("Alerta de urgência", None)
+        st.markdown("#### Dados extraídos")
+        dados = resultado.get("dados_extraidos")
+        if isinstance(dados, dict) and dados:
+            for campo, valor in dados.items():
+                titulo = "Médico responsável" if campo == "medico_responsavel" else rotulo_campo(campo)
+                render_campo_resumo(titulo, valor)
+        else:
+            st.caption("Não informado")
 
 
 def render_documentos(categoria):
@@ -372,10 +426,7 @@ def render_documentos(categoria):
         if not isinstance(detalhe, dict) or "resultado" not in detalhe:
             raise ValueError("Detalhe do documento em formato inesperado.")
         with painel_resultado:
-            if detalhe.get("erro"):
-                st.warning(detalhe["erro"])
-            else:
-                st.json(detalhe["resultado"])
+            render_resumo_documento(detalhe)
         with painel_original:
             render_acoes_documento(categoria, chave, caminho, detalhe)
     except (requests.RequestException, ValueError) as erro:
@@ -385,17 +436,23 @@ def render_documentos(categoria):
 
 def render_acoes_documento(categoria, chave, caminho, detalhe):
     render_previa_documento(categoria, chave, caminho, detalhe)
-    if st.button("Excluir documento"):
+    st.divider()
+    if st.button("Excluir documento", icon=":material/delete:", key="excluir_documento"):
         st.session_state["exclusao_documento"] = (categoria, chave)
     if st.session_state.get("exclusao_documento") == (categoria, chave):
         st.warning("Confirme a exclusão permanente do original, da triagem e dos registros associados da auditoria.")
-        st.code(f"Original: {detalhe.get('nome') or chave}\nTriagem: {chave}.triagem.json\n"
-                "Cópia e decisão da auditoria, quando existirem.")
+        st.caption(f"Arquivo: {detalhe.get('nome') or 'Documento sem nome'}")
         if st.button("Confirmar exclusão", type="primary"):
-            chamar_documentos("delete", caminho)
-            limpar_documento_aberto()
-            st.session_state["aviso_documentos"] = "Documento excluído dos buckets."
-            st.rerun()
+            try:
+                chamar_documentos("delete", caminho)
+            except requests.RequestException as erro:
+                mostrar_erro_documentos(erro)
+            else:
+                limpar_documento_aberto()
+                st.session_state.pop(f"selecionado_{categoria}", None)
+                st.session_state["limpar_busca_documentos"] = categoria
+                st.session_state["aviso_documentos"] = "Documento excluído dos buckets."
+                st.rerun()
         if st.button("Cancelar exclusão"):
             st.session_state.pop("exclusao_documento", None)
             st.rerun()
