@@ -5,13 +5,14 @@ import tomllib
 from typing import Annotated
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 
 from agent.schemas import ResultadoTriagem, Rota
 from api.auditoria import router as roteador_auditoria
+from api.chat import router as roteador_chat
 from api.documentos import router as roteador_documentos
 from api.service import ServicoTriagem
-from storage.base import Armazenamento
+from storage.base import Armazenamento, criar_chave
 from storage.oci_storage import obter_armazenamento_oci
 
 
@@ -24,6 +25,7 @@ with (Path(__file__).resolve().parents[1] / "pyproject.toml").open("rb") as arqu
 app = FastAPI(title="MediFlow", version=versao)
 app.include_router(roteador_auditoria)
 app.include_router(roteador_documentos)
+app.include_router(roteador_chat)
 
 TIPOS_POR_EXTENSAO = {
     ".pdf": "application/pdf",
@@ -49,8 +51,14 @@ def saude():
     return {"status": "ok"}
 
 
-@app.post("/triagem", response_model=ResultadoTriagem)
+@app.post("/triagem", response_model=ResultadoTriagem, responses={
+    200: {"headers": {"X-Documento-Chave": {
+        "description": "Chave usada no processamento, para consultar o documento. Não confirma persistência em caso de falha de armazenamento.",
+        "schema": {"type": "string"},
+    }}},
+})
 async def triagem(
+    response: Response,
     servico: Annotated[ServicoTriagem, Depends(obter_servico)],
     arquivo: UploadFile = File(...),
     canal_origem: str = Form(""),
@@ -68,6 +76,9 @@ async def triagem(
         conteudo = await arquivo.read()
         if not conteudo:
             raise HTTPException(status_code=400, detail="O arquivo está vazio.")
-        return await servico.processar(nome, tipo, conteudo, canal_origem, caso_mock)
+        chave = criar_chave(nome)
+        resultado = await servico.processar(nome, tipo, conteudo, canal_origem, caso_mock, chave=chave)
+        response.headers["X-Documento-Chave"] = chave
+        return resultado
     finally:
         await arquivo.close()

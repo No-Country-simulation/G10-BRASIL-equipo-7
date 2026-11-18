@@ -14,7 +14,7 @@ from agent.adapters import Agente, identificar_documento, obter_agente
 from agent.config import carregar_configuracao
 from agent.schemas import ResultadoTriagem, Rota
 from alerts.urgencia import enviar_alerta
-from storage.base import Armazenamento, criar_chave
+from storage.base import Armazenamento, criar_chave, validar_chave
 
 
 log = logging.getLogger(__name__)
@@ -142,8 +142,11 @@ class ServicoTriagem:
         conteudo: bytes,
         canal_origem: str = "",
         caso_mock: Rota | None = None,
+        *,
+        chave: str | None = None,
     ) -> ResultadoTriagem:
-        chave = criar_chave(nome)
+        chave = criar_chave(nome) if chave is None else chave
+        validar_chave(chave)
         documento_id = identificar_documento({})
         original_ambiguo_salvo = False
         metadados = {

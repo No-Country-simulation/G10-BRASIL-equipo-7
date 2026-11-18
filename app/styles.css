@@ -71,7 +71,7 @@ footer { visibility: hidden; }
 }
 .st-key-marca button[aria-label="Fullscreen"] { display: none; }
 .st-key-marca {
-    padding-bottom: 1.1rem; margin-bottom: 1.5rem;
+    padding-bottom: .85rem; margin-bottom: .85rem;
     border-bottom: 2px solid #e2e8f0;
 }
 .st-key-marca h1 { font-size: 1.75rem; line-height: 1.1; margin: 0; padding: 0; font-weight: 800; color: #14202b; }
@@ -270,4 +270,87 @@ footer { visibility: hidden; }
     .banner-topo h2 { font-size: 1.75rem; }          /* "AMBIGUIDADE" cabe em 360 px */
     .banner-topo h3 { font-size: 1.15rem; }
     [class*="st-key-card_"] { padding: 1rem; }
+}
+
+/* ---------- Nova triagem e assistente (somente na página de envio) ---------- */
+[data-testid="stMainBlockContainer"]:has(.st-key-envio_assistente) { max-width: 1680px; }
+.st-key-envio_assistente :is(.st-key-painel_nova_triagem, .st-key-painel_assistente) {
+    padding: 1.25rem; background: #fff; border: 1px solid #dfe6ee;
+    border-radius: 1rem; box-shadow: 0 2px 8px rgb(15 23 42 / .03); min-width: 0;
+}
+.st-key-envio_assistente h3 { font-size: 1.35rem; padding-top: 0; }
+.st-key-envio_assistente [data-testid="stCaptionContainer"] { color: #64748b; opacity: 1; }
+.st-key-cabecalho_assistente { border-bottom: 1px solid #e2e8f0; padding-bottom: .85rem; }
+:is(.st-key-cabecalho_assistente, .st-key-cabecalho_nova_triagem) h3 { padding-bottom: .2rem; margin: 0; }
+:is(.st-key-cabecalho_assistente, .st-key-cabecalho_nova_triagem) h3 [data-heading-text] {
+    display: inline-flex; align-items: center; gap: .4rem;
+}
+:is(.st-key-cabecalho_assistente, .st-key-cabecalho_nova_triagem) h3 [role="img"] {
+    color: #078c95; font-size: 1.7rem; line-height: 1; flex-shrink: 0;
+}
+:is(.st-key-cabecalho_assistente, .st-key-cabecalho_nova_triagem) :is([data-testid="stMarkdownContainer"], [data-testid="stCaptionContainer"]) { margin: 0; }
+:is(.st-key-cabecalho_assistente, .st-key-cabecalho_nova_triagem) p { margin: 0; }
+:is(.st-key-cabecalho_assistente, .st-key-cabecalho_nova_triagem) [data-testid="stCaptionContainer"] p { color: #475569; font-size: .9rem; line-height: 1.4; }
+.st-key-nova_conversa button { color: #0369c9; border-color: #6b9ed2; background: #fff; }
+.st-key-ultima_triagem { background: #f5f8fc; border-radius: .75rem; }
+.st-key-painel_nova_triagem hr { margin: .65rem 0; }
+.st-key-painel_nova_triagem h4 { font-size: 1.1rem; margin: 0; padding: .2rem 0 .5rem; }
+.st-key-ultima_triagem [data-testid="stText"] { font-weight: 650; font-size: .9rem; }
+.st-key-ultima_triagem [data-testid="stColumn"]:last-child button { min-height: 2rem; }
+.st-key-ultima_triagem button { color: #0369c9; border-color: #9fbddd; background: #fff; }
+.st-key-contexto_ultima_triagem :is([data-testid="stMarkdownContainer"], p) { white-space: normal; overflow: visible; text-overflow: clip; }
+.st-key-envio_assistente [data-testid="stWidgetLabel"] p { font-size: .95rem; }
+.st-key-envio_assistente [data-testid="stFileUploaderDropzone"] {
+    min-height: 10rem; padding: 1rem; border: 2px dashed #cbd5e1;
+    background: #f0fafb; border-color: #54a6ad; border-radius: .75rem;
+}
+.st-key-envio_assistente [data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"]::before {
+    content: "Arraste seu documento aqui\Aou selecione um arquivo";
+    white-space: pre-line; color: #164458; font-weight: 600; line-height: 1.5; order: 0; pointer-events: none;
+}
+.st-key-envio_assistente [data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzoneInstructions"] { display: none; }
+.st-key-envio_assistente [data-testid="stFileUploader"]:not(:has([data-testid="stFileUploaderFile"])) [data-testid="stFileUploaderDropzone"]::after {
+    content: "PDF, PNG, JPG, JPEG ou JSON"; color: #475569; font-size: .8rem; order: 2; pointer-events: none;
+}
+.st-key-envio_assistente [data-testid="stFileUploaderDropzone"] button * { font-size: .9rem !important; }
+.st-key-envio_assistente .stSelectbox [data-baseweb="select"] > div {
+    min-height: 2.75rem; border: 1px solid #cbd5e1; border-radius: .5rem;
+}
+.st-key-envio_assistente :is(.st-key-enviar, .st-key-reiniciar, .st-key-nova_conversa, .st-key-repetir_chat) button {
+    min-height: 2.75rem; padding: .5rem .9rem; border-radius: .65rem;
+}
+.st-key-envio_assistente :is(.st-key-enviar, .st-key-reiniciar, .st-key-nova_conversa, .st-key-repetir_chat) button p {
+    font-size: .9rem !important; font-weight: 600 !important;
+}
+.st-key-nova_conversa { flex-shrink: 0; }
+.st-key-historico_chat { padding-top: .5rem; }
+.st-key-historico_chat [data-testid="stChatMessage"] {
+    padding: .8rem; border-radius: .75rem; background: #f5f8fa;
+}
+.st-key-historico_chat [data-testid="stChatMessage"] p { font-size: .9rem; line-height: 1.6; overflow-wrap: anywhere; }
+.st-key-historico_chat [data-testid="stChatMessage"] :is(h3, h4) { font-size: 1.05rem; line-height: 1.4; padding: .3rem 0 .4rem; }
+.st-key-historico_chat [data-testid="stChatMessage"] li + li { margin-top: .6rem; }
+.st-key-historico_chat [data-testid="stChatMessageAvatarCustom"] { object-fit: contain; }
+.st-key-historico_chat [data-testid="stLayoutWrapper"]:has(> [data-testid="stChatMessage"] [data-testid="stChatMessageAvatarUser"]) { margin-left: auto; max-width: 90%; }
+.st-key-historico_chat [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) { background: #dcefff; max-width: 100%; }
+.st-key-historico_chat [data-testid="stChatMessageAvatarUser"] { display: none; }
+.st-key-envio_assistente [data-testid="stChatInput"] { border: 1px solid #cbd5e1; border-radius: .75rem; background: #fff; }
+.st-key-envio_assistente :is(.st-key-ver_ultima_triagem, .st-key-contexto_ultima_triagem, .st-key-remover_contexto_chat, [class*="st-key-fonte_resposta_"]) button {
+    min-height: 2.5rem; padding: .4rem .6rem;
+}
+.st-key-envio_assistente :is(.st-key-ver_ultima_triagem, .st-key-contexto_ultima_triagem, .st-key-remover_contexto_chat, [class*="st-key-fonte_resposta_"]) button p { font-size: .85rem; }
+@media (min-width: 1051px) {
+    .st-key-envio_assistente :is(.st-key-painel_nova_triagem, .st-key-painel_assistente) { min-height: 720px; }
+}
+@media (max-width: 1050px) {
+    .st-key-envio_assistente [data-testid="stHorizontalBlock"]:has(.st-key-painel_nova_triagem) {
+        flex-direction: column;
+    }
+    .st-key-envio_assistente [data-testid="stColumn"]:has(:is(.st-key-painel_nova_triagem, .st-key-painel_assistente)) {
+        width: 100% !important; flex: 1 1 auto !important; min-width: 0 !important;
+    }
+}
+@media (max-width: 640px) {
+    .st-key-cabecalho_assistente { flex-direction: column; align-items: flex-start; }
+    .st-key-cabecalho_assistente > div { width: 100%; }
 }
