@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from agent.config import carregar_configuracao
-from agent.schemas import ResultadoTriagem
+from agent.schemas import DadosExtraidos, ResultadoTriagem
 from alerts.urgencia import enviar_alerta
 from storage.base import (
     ArmazenamentoAuditoria, DecisaoJaRegistrada, DocumentoNaoEncontrado,
@@ -84,6 +84,7 @@ class EncaminhamentoEntrada(BaseModel):
     departamento: str | None = Field(default=None, min_length=1, max_length=200)
     revisor: str = Field(min_length=1, max_length=100)
     observacao: str = Field(default="", max_length=1000)
+    dados_corrigidos: DadosExtraidos | None = None
 
     @model_validator(mode="after")
     def validar_departamento(self):
@@ -235,6 +236,7 @@ def encaminhar(chave: str, entrada: EncaminhamentoEntrada, armazenamento: Armaze
     try:
         decisao = armazenamento.encaminhar_documento(
             chave, entrada.destino, departamento, entrada.revisor, entrada.observacao,
+            entrada.dados_corrigidos.model_dump(exclude_unset=True) if entrada.dados_corrigidos is not None else None,
         )
     except DocumentoNaoEncontrado:
         raise HTTPException(status_code=404, detail="Documento não encontrado.")

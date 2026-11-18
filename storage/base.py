@@ -129,7 +129,7 @@ class ArmazenamentoAuditoria(Protocol):
 
     def encaminhar_documento(
         self, chave: str, destino: str, departamento: str, revisor: str,
-        observacao: str = "",
+        observacao: str = "", dados_corrigidos: dict | None = None,
     ) -> dict:
         """Preserva o histórico e confirma a revisão após persistir o encaminhamento."""
         ...

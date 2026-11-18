@@ -1,5 +1,6 @@
 """Revisão humana do documento selecionado, sempre pela API."""
 from datetime import datetime, timezone
+import json
 from urllib.parse import quote
 
 import requests
@@ -16,6 +17,8 @@ def render_dados_revisao(decisao, render_campo):
         except (TypeError, ValueError):
             pass
     st.markdown("#### Revisão humana")
+    if decisao.get("dados_corrigidos") is not None:
+        st.caption("Dados extraídos corrigidos pelo revisor.")
     for titulo, valor in (("Revisor", decisao.get("revisor")),
                          ("Observação", decisao.get("observacao")), ("Data da revisão", data)):
         render_campo(titulo, valor)
@@ -66,6 +69,15 @@ def render_revisao(chave, detalhe):
         index=1 if decisao.get("destino") == "urgencia" else 0,
         disabled=pendente, key=prefixo + "_destino",
     )
+    corrigidos = decisao.get("dados_corrigidos")
+    editar = st.checkbox("Editar dados extraídos (JSON)", value=corrigidos is not None,
+                         disabled=pendente, key=prefixo + "_editar")
+    texto_dados = ""
+    if editar:
+        st.caption("Corrija ou complete dados_extraidos, preservando os campos que deseja manter. O JSON substituirá esses dados ao confirmar o encaminhamento.")
+        dados = corrigidos if corrigidos is not None else detalhe["resultado"].get("dados_extraidos", {})
+        texto_dados = st.text_area("Dados extraídos (JSON)", value=json.dumps(dados, ensure_ascii=False, indent=2),
+                                  height=240, disabled=pendente, key=prefixo + "_dados")
     with st.form(prefixo):
         departamento = None
         if destino == "rotina":
@@ -90,6 +102,16 @@ def render_revisao(chave, detalhe):
     corpo = {"destino": destino, "revisor": revisor.strip(), "observacao": observacao.strip()}
     if departamento:
         corpo["departamento"] = departamento
+    if editar:
+        try:
+            dados = json.loads(texto_dados)
+            if not isinstance(dados, dict):
+                raise ValueError("Os dados devem ser um objeto JSON")
+            json.dumps(dados, allow_nan=False)
+        except ValueError:
+            st.warning("Informe um objeto JSON válido em Dados extraídos antes de confirmar.")
+            return
+        corpo["dados_corrigidos"] = dados
     try:
         with st.spinner("Registrando encaminhamento…"):
             resposta = chamar_auditoria("post", f"/{quote(chave, safe='')}/encaminhamento", json=corpo).json()
@@ -104,6 +126,11 @@ def render_revisao(chave, detalhe):
                     mensagem = detalhe_erro
                 elif isinstance(detalhe_erro, dict):
                     mensagem = detalhe_erro.get("mensagem", mensagem)
+                elif isinstance(detalhe_erro, list):
+                    mensagem = "Confira os campos do JSON: " + "; ".join(
+                        f"{'.'.join(str(c) for c in item.get('loc', [])[1:])}: {item.get('msg', 'valor inválido')}"
+                        for item in detalhe_erro[:3]
+                    )
             except ValueError:
                 pass
         st.session_state["erro_revisao"] = (chave, mensagem)

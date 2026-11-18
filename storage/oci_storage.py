@@ -337,15 +337,15 @@ class ArmazenamentoObjectStorage:
 
     def encaminhar_documento(
         self, chave: str, destino: str, departamento: str, revisor: str,
-        observacao: str = "",
+        observacao: str = "", dados_corrigidos: dict | None = None,
     ) -> dict:
         # Evita que requisições concorrentes deste processo regravem a reserva do alerta.
         with self._lock_revisao:
-            return self._encaminhar_documento(chave, destino, departamento, revisor, observacao)
+            return self._encaminhar_documento(chave, destino, departamento, revisor, observacao, dados_corrigidos)
 
     def _encaminhar_documento(
         self, chave: str, destino: str, departamento: str, revisor: str,
-        observacao: str = "",
+        observacao: str = "", dados_corrigidos: dict | None = None,
     ) -> dict:
         """Grava o resultado revisado sem alterar a triagem original da auditoria.
 
@@ -359,10 +359,13 @@ class ArmazenamentoObjectStorage:
             raise ValueError("Informe o departamento e o revisor")
         if not isinstance(observacao, str):
             raise ValueError("A observação deve ser um texto")
+        if dados_corrigidos is not None and not isinstance(dados_corrigidos, dict):
+            raise ValueError("Os dados corrigidos devem ser um objeto JSON")
         entrada = {
             "acao": "encaminhar", "destino": destino,
             "departamento": departamento.strip(), "revisor": revisor.strip(),
             "observacao": observacao.strip(),
+            "dados_corrigidos": dados_corrigidos,
         }
         decisao = self.ler_decisao(chave)
         if decisao is not None:
@@ -380,6 +383,7 @@ class ArmazenamentoObjectStorage:
             raise ValueError("A triagem original deve estar em ambiguidade")
         resultado = {
             **original, "classificacao": destino,
+            "dados_extraidos": dados_corrigidos if dados_corrigidos is not None else original["dados_extraidos"],
             "destino_principal": entrada["departamento"], "alerta_enviado": False,
             "justificativa": (
                 f"{original.get('justificativa', '')}\n"
