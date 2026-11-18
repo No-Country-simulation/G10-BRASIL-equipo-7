@@ -7,6 +7,8 @@ A API decide entre simulação e agente real pela variável AGENT_MODE.
 import html
 import json
 import os
+import re
+from urllib.parse import quote
 
 import requests
 import streamlit as st
@@ -219,20 +221,26 @@ footer { visibility: hidden; }
 .marca h1 { font-size: 1.75rem; line-height: 1.1; margin: 0; padding: 0; font-weight: 800; color: #14202b; }
 .marca p { margin: .25rem 0 0; color: #475569; }
 
-/* ---------- Legenda (3 cartões de cor) ---------- */
-.legenda {
-    min-height: 5.25rem; display: flex; align-items: center; gap: .75rem;
+/* ---------- Categorias (3 cartões clicáveis) ---------- */
+[class*="st-key-categoria_"] button[data-testid] {
+    min-height: 5.25rem; justify-content: flex-start; gap: .75rem;
     padding: .75rem; background: #fff; border: 2px solid #e2e8f0;
-    border-radius: .75rem; transition: opacity .2s;
+    border-radius: .75rem; text-align: left;
 }
-.legenda.ativa { border-color: var(--borda); }
-.legenda.apagada { opacity: .5; }
-.legenda-icone {
-    width: 3rem; height: 3rem; flex: 0 0 auto; display: grid; place-items: center;
-    border-radius: 999px; background: var(--bg); color: var(--icone);
+[class*="st-key-categoria_"] button > div,
+[class*="st-key-categoria_"] [data-has-shortcut] {
+    width: 100%; justify-content: flex-start; gap: .75rem;
 }
-.legenda strong { display: block; color: #14202b; }
-.legenda span { color: #475569; font-size: .88rem; line-height: 1.25; }
+[class*="st-key-categoria_"] span:has(> [data-testid="stIconMaterial"]) {
+    width: 3rem; height: 3rem; flex: 0 0 3rem;
+}
+[class*="st-key-categoria_"] [data-testid="stIconMaterial"] {
+    width: 3rem; height: 3rem; flex: 0 0 3rem; padding: 0;
+    display: grid; place-items: center; border-radius: 999px;
+    font-size: 1.7rem; line-height: 1;
+}
+[class*="st-key-categoria_"] button p { color: #475569; font-size: .88rem; }
+[class*="st-key-categoria_"] button strong { color: #14202b; font-size: 1rem; }
 
 /* ---------- Cards: st.container(key="card_...") gera a classe .st-key-card_... ---------- */
 [class*="st-key-card_"] {
@@ -471,20 +479,137 @@ def render_cabecalho():
 
 
 def render_legenda(ativo=None):
-    """Três cartões de cor. Com resultado na tela, só o da rota ativa fica em destaque."""
+    """Abre a consulta da categoria pela API, mantendo as cores dos cartões."""
     colunas = st.columns(3)
+    icones = {"urgencia": "warning", "rotina": "check_circle", "ambiguidade": "help"}
     for coluna, nivel in zip(colunas, ("urgencia", "rotina", "ambiguidade")):
         t = TEMA[nivel]
-        estado = " ativa" if ativo == nivel else " apagada" if ativo else ""
         with coluna:
-            mostrar_html(
-                f"""
-                <div class="legenda{estado}" style="--bg:{t['bg']};--borda:{t['borda']};--icone:{t['icone']}">
-                    <div class="legenda-icone">{icone(nivel, 28)}</div>
-                    <div><strong>{ROTULO[nivel]}</strong><span>{t['acao']}</span></div>
-                </div>
-                """
+            st.html(
+                f"<style>.st-key-categoria_{nivel} button[data-testid] {{border-color: {t['borda'] if ativo == nivel else '#e2e8f0'};}}"
+                f".st-key-categoria_{nivel} [data-testid='stIconMaterial'] {{background: {t['bg']}; color: {t['icone']};}}"
+                f".st-key-categoria_{nivel} button[data-testid]:hover {{border-color: {t['borda']};}}</style>"
             )
+            if st.button(f"**{ROTULO[nivel]}**  \n{t['acao']}", key=f"categoria_{nivel}",
+                         icon=f":material/{icones[nivel]}:", width="stretch",
+                         disabled=st.session_state.get("carregando", False)):
+                st.session_state["categoria_documentos"] = nivel
+                limpar_documento_aberto()
+                st.rerun()
+
+
+def limpar_documento_aberto():
+    for chave in ("original_documento", "exclusao_documento"):
+        st.session_state.pop(chave, None)
+
+
+def chamar_documentos(metodo, caminho="", **parametros):
+    resposta = getattr(requests, metodo)(
+        f"{url_api()}/documentos{caminho}", timeout=30, **parametros
+    )
+    resposta.raise_for_status()
+    return resposta
+
+
+def mostrar_erro_documentos(erro):
+    mensagem = "Não foi possível consultar os documentos. Tente novamente."
+    if isinstance(erro, requests.HTTPError) and erro.response is not None:
+        if erro.response.status_code == 404:
+            mensagem = "Documento não encontrado. Atualize a lista."
+        elif erro.response.status_code == 503:
+            mensagem = "O armazenamento está indisponível ou a operação não foi concluída. Tente novamente."
+        try:
+            detalhe = erro.response.json().get("detail")
+        except (ValueError, AttributeError):
+            detalhe = None
+        if isinstance(detalhe, dict) and "pendentes" in detalhe:
+            st.error("Exclusão não concluída. Confira os objetos pendentes e tente novamente.")
+            st.json(detalhe)
+            return
+    st.error(mensagem)
+    with st.expander("Detalhes técnicos"):
+        st.code(str(erro))
+
+
+def mostrar_original(conteudo, nome):
+    extensao = nome.rsplit(".", 1)[-1].lower()
+    try:
+        if extensao in ("png", "jpg", "jpeg"):
+            st.image(conteudo, width="stretch")
+        elif extensao == "json":
+            st.json(json.loads(conteudo))
+        elif extensao == "pdf":
+            st.pdf(conteudo, height=620, alt="Documento original em PDF")
+    except (ValueError, OSError):
+        st.warning("Não foi possível visualizar este formato. Use o download do original.")
+    st.download_button("Baixar original", conteudo, file_name=nome, on_click="ignore")
+
+
+def render_documentos(categoria):
+    st.subheader(f"Documentos · {ROTULO[categoria]}")
+    if st.button("Voltar ao envio"):
+        st.session_state.pop("categoria_documentos", None)
+        st.session_state.pop("resultado", None)
+        limpar_documento_aberto()
+        st.rerun()
+    if st.button("Atualizar lista"):
+        limpar_documento_aberto()
+        st.rerun()
+    aviso = st.session_state.pop("aviso_documentos", None)
+    if aviso:
+        st.success(aviso)
+    try:
+        itens = chamar_documentos("get", params={"categoria": categoria}).json()
+        if not isinstance(itens, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("chave"), str) for item in itens
+        ):
+            raise ValueError("Lista de documentos em formato inesperado.")
+        if not itens:
+            st.info("Nenhum documento nesta categoria.")
+            return
+        rotulos, repeticoes = {}, {}
+        for item in itens:
+            nome = item.get("nome") or "Documento sem nome"
+            if nome == item["chave"] and re.fullmatch(r"[0-9a-fA-F]{32}\.[^.]+", nome):
+                nome = "Documento antigo" + os.path.splitext(nome)[1]
+            repeticoes[nome] = repeticoes.get(nome, 0) + 1
+            numero = repeticoes[nome]
+            rotulos[item["chave"]] = nome if numero == 1 else f"{nome} ({numero})"
+        chave = st.selectbox("Documento", list(rotulos), format_func=rotulos.get,
+                             key=f"documento_{categoria}", on_change=limpar_documento_aberto)
+        caminho = f"/{categoria}/{quote(chave, safe='')}"
+        detalhe = chamar_documentos("get", caminho).json()
+        if not isinstance(detalhe, dict) or "resultado" not in detalhe:
+            raise ValueError("Detalhe do documento em formato inesperado.")
+        if detalhe.get("erro"):
+            st.warning(detalhe["erro"])
+        else:
+            st.markdown("#### JSON da triagem")
+            st.json(detalhe["resultado"])
+        if st.button("Visualizar original", disabled=not detalhe.get("original_disponivel")):
+            original = chamar_documentos("get", caminho + "/original")
+            st.session_state["original_documento"] = (categoria, chave, original.content)
+        original = st.session_state.get("original_documento")
+        if original and original[:2] == (categoria, chave):
+            mostrar_original(original[2], detalhe.get("nome") or chave)
+        if not detalhe.get("original_disponivel"):
+            st.caption("Original indisponível nos buckets.")
+        if st.button("Excluir documento"):
+            st.session_state["exclusao_documento"] = (categoria, chave)
+        if st.session_state.get("exclusao_documento") == (categoria, chave):
+            st.warning("Confirme a exclusão permanente do original, da triagem e dos registros associados da auditoria.")
+            st.code(f"Original: {detalhe.get('nome') or chave}\nTriagem: {chave}.triagem.json\n"
+                    "Cópia e decisão da auditoria, quando existirem.")
+            if st.button("Confirmar exclusão", type="primary"):
+                chamar_documentos("delete", caminho)
+                limpar_documento_aberto()
+                st.session_state["aviso_documentos"] = "Documento excluído dos buckets."
+                st.rerun()
+            if st.button("Cancelar exclusão"):
+                st.session_state.pop("exclusao_documento", None)
+                st.rerun()
+    except (requests.RequestException, ValueError) as erro:
+        mostrar_erro_documentos(erro)
 
 
 def render_envio():
@@ -658,10 +783,13 @@ st.markdown(ESTILOS, unsafe_allow_html=True)
 render_cabecalho()
 
 resultado = st.session_state.get("resultado")
-render_legenda(resultado["classificacao"] if resultado else None)
+categoria = st.session_state.get("categoria_documentos")
+render_legenda(categoria or (resultado["classificacao"] if resultado else None))
 st.write("")
 
-if st.session_state.get("carregando") and "pendente" in st.session_state:
+if categoria:
+    render_documentos(categoria)
+elif st.session_state.get("carregando") and "pendente" in st.session_state:
     render_carregando()
 elif resultado is None:
     render_envio()
