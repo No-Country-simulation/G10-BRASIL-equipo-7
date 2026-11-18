@@ -28,8 +28,10 @@ def render_fontes(resposta, indice, abrir_documento):
             continue
         ref = fonte["referencia"]
         with st.container(border=True, key=f"fonte_resposta_{indice}_{numero}"):
-            st.text(f"{fonte['nome']} · {ROTULOS[ref['categoria']]}")
             if fonte.get("trecho"):
+                st.markdown("**Evidência no documento**")
                 st.text(fonte["trecho"])
-            if st.button("Abrir documento", key=f"fonte_chat_{indice}_{numero}", icon=":material/open_in_new:"):
-                abrir_documento(ref)
+            with st.container(horizontal=True, vertical_alignment="center"):
+                st.text(f"{fonte['nome']} · {ROTULOS[ref['categoria']]}", width="stretch")
+                if st.button("Abrir documento", key=f"fonte_chat_{indice}_{numero}", icon=":material/open_in_new:"):
+                    abrir_documento(ref)

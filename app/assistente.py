@@ -30,6 +30,8 @@ def selecionar_documento(referencia, nome):
     liberar_contexto()
     st.session_state["referencia_chat"] = referencia
     st.session_state["nome_contexto_chat"] = nome
+    chave = f"mensagem_chat_{st.session_state['contexto_chat']}"
+    st.session_state[chave] = f"Quero um resumo do documento {nome}."
 
 
 def receber_mensagem(chave):
@@ -80,27 +82,32 @@ def tentar_novamente():
 
 
 def render_assistente(abrir_documento):
-    with st.container(horizontal=True, vertical_alignment="center"):
-        st.subheader("Assistente", width="stretch")
-        st.button("Nova conversa", key="nova_conversa", on_click=nova_conversa,
+    with st.container(horizontal=True, vertical_alignment="center", key="cabecalho_assistente"):
+        with st.container(gap=None):
+            st.subheader(":material/chat_bubble_outline: Assistente MediFlow")
+            st.caption("Pergunte sobre documentos e casos já triados.")
+        st.button("Nova conversa", icon=":material/add:", key="nova_conversa", on_click=nova_conversa,
                   disabled=st.session_state.get("chat_em_envio", False))
-    st.caption("Converse sobre os documentos da base. Esta consulta não altera os arquivos.")
     anexo = st.session_state.get("anexo_chat")
     referencia = st.session_state.get("referencia_chat")
     if anexo or referencia:
         nome = anexo.nome if anexo else st.session_state["nome_contexto_chat"]
         st.text(("Anexo temporário: " if anexo else "Documento em contexto: ") + nome)
         st.button("Remover contexto", key="remover_contexto_chat", on_click=liberar_contexto)
-    with st.container(height=490, key="historico_chat", autoscroll=True):
+    with st.container(height=420, border=False, key="historico_chat", autoscroll=True):
         mensagens = st.session_state.get("conversa_chat", [])
+        boas_vindas = st.empty()
         if not mensagens:
-            with st.chat_message("assistant", avatar=AVATAR):
+            with boas_vindas.container(), st.chat_message("assistant", avatar=AVATAR):
                 st.markdown("**Como posso ajudar?**")
                 st.write("Consulte os documentos e as evidências das triagens.")
                 st.caption('Experimente: “Quais casos estão em urgência?” ou “Encontre o arquivo laudo.pdf”.')
+        else:
+            boas_vindas.empty()  # Remove as sugestões antes da chamada bloqueante à API.
         for indice, item in enumerate(mensagens):
             papel = "user" if item["papel"] == "usuario" else "assistant"
-            with st.chat_message(papel, avatar=AVATAR if papel == "assistant" else None):
+            with st.chat_message(papel, avatar=AVATAR if papel == "assistant" else None,
+                                 width="content" if papel == "user" else "stretch"):
                 st.markdown(item["conteudo"])
                 if item.get("anexo_nome"):
                     st.caption("Anexo temporário · " + item["anexo_nome"])
@@ -129,4 +136,4 @@ def render_assistente(abrir_documento):
     config = carregar_configuracao_chat()
     st.chat_input("Pergunte ou anexe um documento…", key=chave, on_submit=receber_mensagem, args=(chave,),
                   accept_file=True, file_type=["pdf", "png", "jpg", "jpeg", "json"], max_upload_size=config.max_anexo_mb)
-    st.caption("O clipe mantém um anexo ativo nesta conversa, sem salvá-lo na base. Nomes semelhantes são apenas candidatos; a igualdade é verificada pelo conteúdo.")
+    st.caption("Anexe um arquivo para conversar sobre ele, sem salvá-lo na base. Para iniciar uma triagem, use o painel ao lado.")

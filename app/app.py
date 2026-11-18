@@ -133,7 +133,7 @@ def render_cabecalho():
     with st.container(key="marca", horizontal=True, wrap=False, vertical_alignment="center", gap="medium"):
         st.image(str(ASSETS / "mediflow-icone.png"), width=64)
         with st.container():
-            mostrar_html("<h1>MediFlow</h1><p>Triagem de documentos médicos.</p>")
+            mostrar_html("<h1>Triagem e assistente</h1><p>Envie um documento para triagem ou converse sobre os casos.</p>")
 
 
 def render_legenda(ativo=None, contagens=None):
@@ -389,11 +389,6 @@ def render_documentos(categoria):
             st.warning(encaminhado["aviso"])
         elif destino == "urgencia" and encaminhado.get("alerta_status") != "enviado":
             st.warning("Encaminhamento confirmado. O envio do alerta não foi confirmado.")
-        if st.button(f"Abrir {ROTULO[destino]}"):
-            st.session_state["categoria_documentos"] = destino
-            st.session_state.pop("encaminhamento_concluido", None)
-            limpar_documento_aberto()
-            st.rerun()
     try:
         parametros = {"categoria": categoria}
         if categoria == "ambiguidade":
@@ -480,7 +475,7 @@ def pagina_envio():
     st.markdown(ESTILOS, unsafe_allow_html=True)
     render_cabecalho()
     with st.container(key="envio_assistente"):
-        esquerda, direita = st.columns([1, 1.2], gap="large")
+        esquerda, direita = st.columns([2, 3], gap="medium")
         with esquerda, st.container(key="painel_nova_triagem"):
             render_nova_triagem(formatar_valor, abrir_documento_chat)
         with direita, st.container(key="painel_assistente"):

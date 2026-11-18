@@ -3,6 +3,7 @@
   "max_interacoes_historico": 10,
   "max_triagens_consulta": 30,
   "max_originais_consulta": 3,
+  "max_originais_verificacao": 100,
   "max_leitura_total_mb": 50,
   "timeout_requisicao_segundos": 60
 }

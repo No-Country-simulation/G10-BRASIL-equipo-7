@@ -28,6 +28,7 @@ class BuscaDocumentos:
         self.config = configuracao or carregar_configuracao_chat()
         self.prazo = monotonic() + self.config.timeout_requisicao_segundos
         self.bytes_lidos = self.originais_lidos = self.triagens_lidas = 0
+        self.originais_verificados = 0
 
     def _checar_prazo(self):
         if monotonic() >= self.prazo:
@@ -53,8 +54,11 @@ class BuscaDocumentos:
 
     def _ler(self, bucket, objeto, original=False, reter_original=False):
         self._checar_prazo()
-        if original and self.originais_lidos >= self.config.max_originais_consulta:
-            raise LimiteBusca("Limite de originais lidos atingido")
+        if original:
+            if reter_original and self.originais_lidos >= self.config.max_originais_consulta:
+                raise LimiteBusca("Limite de originais para análise atingido")
+            if not reter_original and self.originais_verificados >= self.config.max_originais_verificacao:
+                raise LimiteBusca("Limite de originais para verificação de identidade atingido")
         try:
             resposta = self.cliente.get_object(Bucket=bucket, Key=objeto)
         except ClientError as erro:
@@ -71,7 +75,8 @@ class BuscaDocumentos:
             restante = self.config.max_leitura_total_bytes - self.bytes_lidos
             if tamanho is not None and tamanho > restante:
                 raise LimiteBusca("Limite total de leitura atingido")
-            self.originais_lidos += int(original)
+            self.originais_lidos += int(original and reter_original)
+            self.originais_verificados += int(original and not reter_original)
             self.triagens_lidas += int(not original and objeto.endswith(SUFIXO_TRIAGEM))
             digest, partes, lidos = sha256(), [], 0
             while tamanho is None or lidos < tamanho:
@@ -168,6 +173,8 @@ class BuscaDocumentos:
                         if not re.fullmatch(r"[0-9a-f]{64}", digest):
                             if prefixo and reservado and not copia:
                                 raise ValueError("Objeto legado sem identificação de original")
+                            if cabecalho.get("ContentLength") not in (None, len(anexo.conteudo)):
+                                continue  # Tamanhos diferentes já descartam igualdade de bytes.
                             digest = self._ler(bucket, prefixo + chave, original=True)
                             if digest is None:
                                 raise ValueError("Original removido durante a busca")

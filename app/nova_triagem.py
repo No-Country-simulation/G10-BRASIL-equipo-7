@@ -15,9 +15,10 @@ def _limpar_arquivo():
 
 
 def render_nova_triagem(formatar_valor, abrir_documento):
-    st.subheader("Nova triagem")
-    st.caption("Envie um documento para análise e armazenamento na base.")
-    arquivo = st.file_uploader("Documento", type=["pdf", "png", "jpg", "jpeg", "json"], key="arquivo_triagem")
+    with st.container(key="cabecalho_nova_triagem", gap=None):
+        st.subheader(":material/upload: Nova triagem")
+        st.caption("Envie um documento para iniciar uma nova análise.")
+    arquivo = st.file_uploader("Arraste seu documento aqui ou selecione um arquivo", type=["pdf", "png", "jpg", "jpeg", "json"], key="arquivo_triagem", label_visibility="collapsed")
     canal = st.selectbox("Canal de origem", ["Ambulatório", "Pronto-Socorro", "Balcão"])
     if st.button("Enviar para triagem", type="primary", key="enviar", width="stretch"):
         if arquivo is None:
@@ -36,10 +37,29 @@ def render_nova_triagem(formatar_valor, abrir_documento):
                 st.session_state["erro_triagem"] = mensagem_de_erro(erro)
     if erro := st.session_state.get("erro_triagem"):
         st.error(erro)
-    if resultado := st.session_state.get("resultado"):
-        st.divider()
-        st.markdown("#### Última triagem")
-        st.caption(st.session_state.get("nome_ultima_triagem", "Documento analisado"))
+    st.divider()
+    st.markdown("#### Última triagem")
+    resultado = st.session_state.get("resultado")
+    referencia = st.session_state.get("referencia_ultima_triagem")
+    with st.container(border=True, key="ultima_triagem"):
+        if resultado is None:
+            st.markdown(":material/description: **Nenhuma triagem nesta sessão**")
+            st.caption("O último documento analisado aparecerá aqui após o envio.")
+        else:
+            arquivo_info, acoes = st.columns([1.1, 1], gap="small")
+            with arquivo_info:
+                st.text(st.session_state.get("nome_ultima_triagem", "Documento analisado"))
+                rota = resultado["classificacao"]
+                st.badge(ROTULOS[rota], color={"rotina": "green", "urgencia": "red", "ambiguidade": "orange"}[rota])
+            if acoes.button("Ver resultado", icon=":material/open_in_new:", key="ver_ultima_triagem", disabled=referencia is None, width="stretch"):
+                abrir_documento(referencia)
+            if acoes.button("Conversar sobre este documento", icon=":material/chat_bubble_outline:", key="contexto_ultima_triagem", disabled=referencia is None, width="stretch"):
+                selecionar_documento(referencia, st.session_state.get("nome_ultima_triagem", "Documento"))
+    if resultado is None:
+        return
+    if referencia is None:
+        st.caption("O resultado está disponível abaixo; o acesso ao documento na base não foi confirmado.")
+    with st.expander("Detalhes da última triagem"):
         rota = resultado["classificacao"]
         banner = {"rotina": st.success, "urgencia": st.error, "ambiguidade": st.warning}[rota]
         banner(f"{ROTULOS[rota]} · Encaminhado para `{resultado['destino_principal']}`")
@@ -49,21 +69,12 @@ def render_nova_triagem(formatar_valor, abrir_documento):
             st.caption("Alerta de urgência enviado.")
         elif rota == "urgencia":
             st.caption("Alerta de urgência sem confirmação de envio.")
-        with st.expander("Dados extraídos"):
-            if resultado["dados_extraidos"]:
-                for campo, valor in resultado["dados_extraidos"].items():
-                    st.markdown(f"**{campo.replace('_', ' ').capitalize()}**")
-                    st.write(formatar_valor(valor))
-            else:
-                st.info("Nenhum dado foi extraído deste documento.")
-        with st.expander("JSON da última triagem"):
-            st.json(resultado)
-        referencia = st.session_state.get("referencia_ultima_triagem")
-        ver, conversar = st.columns(2)
-        if ver.button("Ver resultado", key="ver_ultima_triagem", disabled=referencia is None, width="stretch"):
-            abrir_documento(referencia)
-        if conversar.button("Conversar sobre este documento", key="contexto_ultima_triagem", disabled=referencia is None, width="stretch"):
-            selecionar_documento(referencia, st.session_state.get("nome_ultima_triagem", "Documento"))
-        if referencia is None:
-            st.caption("A API não informou a chave para abrir este documento na base.")
+        st.markdown("**Dados extraídos**")
+        if resultado["dados_extraidos"]:
+            for campo, valor in resultado["dados_extraidos"].items():
+                st.markdown(f"**{campo.replace('_', ' ').capitalize()}**")
+                st.write(formatar_valor(valor))
+        else:
+            st.info("Nenhum dado foi extraído deste documento.")
+        st.json(resultado)
         st.button("Enviar outro documento", key="reiniciar", on_click=_limpar_arquivo)

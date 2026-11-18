@@ -16,6 +16,7 @@ class ConfiguracaoChat(ModeloContrato):
     max_interacoes_historico: InteiroPositivo
     max_triagens_consulta: InteiroPositivo
     max_originais_consulta: InteiroPositivo
+    max_originais_verificacao: InteiroPositivo = 100
     max_leitura_total_mb: InteiroPositivo
     timeout_requisicao_segundos: Annotated[float, Field(gt=0, allow_inf_nan=False)]
 

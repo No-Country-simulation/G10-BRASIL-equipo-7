@@ -27,7 +27,7 @@ class PlanoConsulta(ModeloContrato):
 
 
 class RespostaModelo(ModeloContrato):
-    mensagem: TextoNaoVazio
+    mensagem: TextoNaoVazio = Field(description="Resposta conversacional em Markdown, com parágrafos e listas quando úteis, sem títulos de seções.")
     fontes: list[IndiceFonte]
     abrir_originais: list[IndiceFonte]
 
@@ -49,7 +49,9 @@ calculada pelo backend por hash, comprova identidade. Nome igual é apenas candi
 Compare gravidade somente pelas evidências clínicas disponíveis, considerando negações,
 histórico e dados ausentes. score_confianca mede confiança da extração, nunca gravidade.
 Não faça diagnóstico nem afirme uma prioridade global sem cobertura e evidência suficientes.
-Explique quais categorias foram consultadas, as incertezas e os limites da análise.
+Mencione brevemente apenas as limitações que afetem a resposta, sem repetir avisos
+já fornecidos pelo backend. Dispense comentários genéricos sobre score, categorias
+consultadas ou método quando não ajudarem a responder à pergunta.
 """
 
 
@@ -189,6 +191,14 @@ class AssistenteConsulta:
                 "\nResponda com mensagem e índices das fontes usadas. Se precisar ler originais para "
                 "sustentar a resposta, peça seus índices em abrir_originais; caso contrário use lista vazia. "
                 "Use exclusivamente índices fornecidos. Diga quando o documento não permitir extrair dados."
+                "\nNo campo mensagem, use Markdown legível: comece com uma resposta direta e breve, "
+                "separe parágrafos com uma linha em branco e destaque nomes de documentos em negrito. "
+                "Ao listar ou comparar casos, apresente um item por documento em lista, com a evidência "
+                "disponível e sem reunir todos os casos em um único parágrafo. "
+                "Responda como uma conversa, sem títulos ou seções como Análise, Limites da Análise "
+                "ou semelhantes. Se uma limitação afetar a resposta, explique-a brevemente no próprio texto. "
+                "Não use HTML nem envolva a mensagem inteira em bloco de código. "
+                "O envelope da resposta continua sendo o objeto JSON do esquema fornecido."
             )
             resposta = await self._executar(
                 contexto, self._gerar, contexto, conteudo, RespostaModelo, instrucao, validar_fontes,
@@ -215,7 +225,7 @@ class AssistenteConsulta:
 
                 resposta = await self._executar(
                     contexto, self._gerar, contexto, conteudo, RespostaModelo,
-                    instrucao + "\nA consulta terminou. Não solicite outras leituras. Informe eventuais limitações.", validar_final,
+                    instrucao + "\nA consulta terminou. Não solicite outras leituras. Mencione apenas limitações relevantes, sem criar seções.", validar_final,
                 )
             mensagem = resposta.mensagem
             if plano.nome and not verificacao:

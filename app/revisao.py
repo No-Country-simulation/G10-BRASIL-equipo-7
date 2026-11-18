@@ -1,11 +1,13 @@
 """Revisão humana do documento selecionado, sempre pela API."""
 from datetime import datetime, timezone
-import json
 from urllib.parse import quote
 
 import requests
 import streamlit as st
+from pydantic import ValidationError
 
+from agent.schemas import DadosExtraidos
+from campos_revisao import render_campos_revisao
 from cliente_api import chamar_auditoria, chamar_documentos
 
 
@@ -70,14 +72,15 @@ def render_revisao(chave, detalhe):
         disabled=pendente, key=prefixo + "_destino",
     )
     corrigidos = decisao.get("dados_corrigidos")
-    editar = st.checkbox("Editar dados extraídos (JSON)", value=corrigidos is not None,
+    editar = st.checkbox("Corrigir dados extraídos", value=corrigidos is not None,
                          disabled=pendente, key=prefixo + "_editar")
-    texto_dados = ""
+    dados = None
     if editar:
-        st.caption("Corrija ou complete dados_extraidos, preservando os campos que deseja manter. O JSON substituirá esses dados ao confirmar o encaminhamento.")
-        dados = corrigidos if corrigidos is not None else detalhe["resultado"].get("dados_extraidos", {})
-        texto_dados = st.text_area("Dados extraídos (JSON)", value=json.dumps(dados, ensure_ascii=False, indent=2),
-                                  height=240, disabled=pendente, key=prefixo + "_dados")
+        st.caption("Confira os dados no documento original e preencha as correções. Deixe em branco o que não estiver informado.")
+        atuais = corrigidos if corrigidos is not None else detalhe["resultado"].get("dados_extraidos", {})
+        dados = render_campos_revisao(atuais, prefixo, disabled=pendente)
+        if pendente:
+            dados = corrigidos  # A retomada deve preservar exatamente a decisão já registrada.
     with st.form(prefixo):
         departamento = None
         if destino == "rotina":
@@ -104,12 +107,9 @@ def render_revisao(chave, detalhe):
         corpo["departamento"] = departamento
     if editar:
         try:
-            dados = json.loads(texto_dados)
-            if not isinstance(dados, dict):
-                raise ValueError("Os dados devem ser um objeto JSON")
-            json.dumps(dados, allow_nan=False)
-        except ValueError:
-            st.warning("Informe um objeto JSON válido em Dados extraídos antes de confirmar.")
+            DadosExtraidos.model_validate(dados)
+        except ValidationError:
+            st.warning("Confira os dados preenchidos antes de confirmar o encaminhamento.")
             return
         corpo["dados_corrigidos"] = dados
     try:
@@ -127,7 +127,7 @@ def render_revisao(chave, detalhe):
                 elif isinstance(detalhe_erro, dict):
                     mensagem = detalhe_erro.get("mensagem", mensagem)
                 elif isinstance(detalhe_erro, list):
-                    mensagem = "Confira os campos do JSON: " + "; ".join(
+                    mensagem = "Confira os campos preenchidos: " + "; ".join(
                         f"{'.'.join(str(c) for c in item.get('loc', [])[1:])}: {item.get('msg', 'valor inválido')}"
                         for item in detalhe_erro[:3]
                     )
