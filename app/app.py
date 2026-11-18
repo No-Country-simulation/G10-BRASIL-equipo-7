@@ -185,19 +185,21 @@ def render_cabecalho():
     )
 
 
-def render_legenda(ativo=None):
+def render_legenda(ativo=None, contagens=None):
     """Abre a consulta da categoria pela API, mantendo as cores dos cartões."""
     colunas = st.columns(3)
     icones = {"urgencia": "warning", "rotina": "check_circle", "ambiguidade": "help"}
     for coluna, nivel in zip(colunas, ("urgencia", "rotina", "ambiguidade")):
         t = TEMA[nivel]
+        quantidade = (contagens or {}).get(nivel)
+        descricao = t["acao"] if quantidade is None else f"{quantidade} documento{'s' if quantidade != 1 else ''}"
         with coluna:
             st.html(
                 f"<style>.st-key-categoria_{nivel} button[data-testid] {{border-color: {t['borda'] if ativo == nivel else '#e2e8f0'};}}"
                 f".st-key-categoria_{nivel} [data-testid='stIconMaterial'] {{background: {t['bg']}; color: {t['icone']};}}"
                 f".st-key-categoria_{nivel} button[data-testid]:hover {{border-color: {t['borda']};}}</style>"
             )
-            if st.button(f"**{ROTULO[nivel]}**  \n{t['acao']}", key=f"categoria_{nivel}",
+            if st.button(f"**{ROTULO[nivel]}**  \n{descricao}", key=f"categoria_{nivel}",
                          icon=f":material/{icones[nivel]}:", width="stretch",
                          disabled=st.session_state.get("carregando", False)):
                 st.session_state["categoria_documentos"] = nivel
@@ -244,6 +246,40 @@ def mostrar_original(conteudo, nome):
     st.download_button("Baixar original", conteudo, file_name=nome, on_click="ignore")
 
 
+def render_lista_documentos(itens, categoria):
+    st.caption(f"{len(itens)} documento{'s' if len(itens) != 1 else ''}")
+    busca = st.text_input("Buscar pelo nome", placeholder="Buscar pelo nome",
+                          key=f"busca_{categoria}", label_visibility="collapsed")
+    rotulos, repeticoes = {}, {}
+    for item in itens:
+        nome = item.get("nome") or "Documento sem nome"
+        if nome == item["chave"] and re.fullmatch(r"[0-9a-fA-F]{32}\.[^.]+", nome):
+            nome = "Documento antigo" + os.path.splitext(nome)[1]
+        repeticoes[nome] = repeticoes.get(nome, 0) + 1
+        numero = repeticoes[nome]
+        rotulos[item["chave"]] = nome if numero == 1 else f"{nome} ({numero})"
+    filtrados = [chave for chave, nome in rotulos.items() if busca.strip().casefold() in nome.casefold()]
+    estado = f"selecionado_{categoria}"
+    if not filtrados:
+        st.session_state.pop(estado, None)
+        limpar_documento_aberto()
+        st.info("Nenhum arquivo encontrado." if itens else "Nenhum documento nesta categoria.")
+        return None
+    if st.session_state.get(estado) not in filtrados:
+        st.session_state[estado] = filtrados[0]
+        limpar_documento_aberto()
+    with st.container(height=440, border=False):
+        for chave in filtrados:
+            if st.button(rotulos[chave], key=f"arquivo_{categoria}_{chave}",
+                         icon=":material/description:", width="stretch",
+                         type="primary" if chave == st.session_state[estado] else "secondary"):
+                if chave != st.session_state[estado]:
+                    st.session_state[estado] = chave
+                    limpar_documento_aberto()
+                    st.rerun()
+    return st.session_state[estado]
+
+
 def render_documentos(categoria):
     titulo, atualizar, novo = st.columns([5, 1.5, 2])
     titulo.subheader("Documentos")
@@ -256,7 +292,6 @@ def render_documentos(categoria):
             st.session_state.pop(chave, None)
         limpar_documento_aberto()
         st.switch_page(PAGINA_ENVIO)
-    render_legenda(categoria)
     aviso = st.session_state.pop("aviso_documentos", None)
     if aviso:
         st.success(aviso)
@@ -266,52 +301,66 @@ def render_documentos(categoria):
             not isinstance(item, dict) or not isinstance(item.get("chave"), str) for item in itens
         ):
             raise ValueError("Lista de documentos em formato inesperado.")
-        if not itens:
-            st.info("Nenhum documento nesta categoria.")
-            return
-        rotulos, repeticoes = {}, {}
-        for item in itens:
-            nome = item.get("nome") or "Documento sem nome"
-            if nome == item["chave"] and re.fullmatch(r"[0-9a-fA-F]{32}\.[^.]+", nome):
-                nome = "Documento antigo" + os.path.splitext(nome)[1]
-            repeticoes[nome] = repeticoes.get(nome, 0) + 1
-            numero = repeticoes[nome]
-            rotulos[item["chave"]] = nome if numero == 1 else f"{nome} ({numero})"
-        chave = st.selectbox("Documento", list(rotulos), format_func=rotulos.get,
-                             key=f"documento_{categoria}", on_change=limpar_documento_aberto)
+    except (requests.RequestException, ValueError) as erro:
+        render_legenda(categoria, st.session_state.get("contagens_documentos"))
+        mostrar_erro_documentos(erro)
+        return
+    contagens = st.session_state.setdefault("contagens_documentos", {})
+    contagens[categoria] = len(itens)
+    render_legenda(categoria, contagens)
+    col_arquivos, col_original, col_resultado = st.columns([25, 45, 30])
+    painel_arquivos = col_arquivos.container(border=True, key="painel_arquivos")
+    painel_original = col_original.container(border=True, key="painel_original")
+    painel_resultado = col_resultado.container(border=True, key="painel_resultado")
+    painel_arquivos.subheader("Arquivos")
+    painel_original.subheader("Documento original")
+    painel_resultado.subheader("Resultado da triagem")
+    with painel_arquivos:
+        chave = render_lista_documentos(itens, categoria)
+    if chave is None:
+        painel_original.info("Selecione um arquivo para visualizar o original.")
+        painel_resultado.info("Selecione um arquivo para consultar a triagem.")
+        return
+    try:
         caminho = f"/{categoria}/{quote(chave, safe='')}"
         detalhe = chamar_documentos("get", caminho).json()
         if not isinstance(detalhe, dict) or "resultado" not in detalhe:
             raise ValueError("Detalhe do documento em formato inesperado.")
-        if detalhe.get("erro"):
-            st.warning(detalhe["erro"])
-        else:
-            st.markdown("#### JSON da triagem")
-            st.json(detalhe["resultado"])
-        if st.button("Visualizar original", disabled=not detalhe.get("original_disponivel")):
-            original = chamar_documentos("get", caminho + "/original")
-            st.session_state["original_documento"] = (categoria, chave, original.content)
-        original = st.session_state.get("original_documento")
-        if original and original[:2] == (categoria, chave):
-            mostrar_original(original[2], detalhe.get("nome") or chave)
-        if not detalhe.get("original_disponivel"):
-            st.caption("Original indisponível nos buckets.")
-        if st.button("Excluir documento"):
-            st.session_state["exclusao_documento"] = (categoria, chave)
-        if st.session_state.get("exclusao_documento") == (categoria, chave):
-            st.warning("Confirme a exclusão permanente do original, da triagem e dos registros associados da auditoria.")
-            st.code(f"Original: {detalhe.get('nome') or chave}\nTriagem: {chave}.triagem.json\n"
-                    "Cópia e decisão da auditoria, quando existirem.")
-            if st.button("Confirmar exclusão", type="primary"):
-                chamar_documentos("delete", caminho)
-                limpar_documento_aberto()
-                st.session_state["aviso_documentos"] = "Documento excluído dos buckets."
-                st.rerun()
-            if st.button("Cancelar exclusão"):
-                st.session_state.pop("exclusao_documento", None)
-                st.rerun()
+        with painel_resultado:
+            if detalhe.get("erro"):
+                st.warning(detalhe["erro"])
+            else:
+                st.json(detalhe["resultado"])
+        with painel_original:
+            render_acoes_documento(categoria, chave, caminho, detalhe)
     except (requests.RequestException, ValueError) as erro:
-        mostrar_erro_documentos(erro)
+        with painel_original:
+            mostrar_erro_documentos(erro)
+
+
+def render_acoes_documento(categoria, chave, caminho, detalhe):
+    if st.button("Visualizar original", disabled=not detalhe.get("original_disponivel")):
+        original = chamar_documentos("get", caminho + "/original")
+        st.session_state["original_documento"] = (categoria, chave, original.content)
+    original = st.session_state.get("original_documento")
+    if original and original[:2] == (categoria, chave):
+        mostrar_original(original[2], detalhe.get("nome") or chave)
+    if not detalhe.get("original_disponivel"):
+        st.caption("Original indisponível nos buckets.")
+    if st.button("Excluir documento"):
+        st.session_state["exclusao_documento"] = (categoria, chave)
+    if st.session_state.get("exclusao_documento") == (categoria, chave):
+        st.warning("Confirme a exclusão permanente do original, da triagem e dos registros associados da auditoria.")
+        st.code(f"Original: {detalhe.get('nome') or chave}\nTriagem: {chave}.triagem.json\n"
+                "Cópia e decisão da auditoria, quando existirem.")
+        if st.button("Confirmar exclusão", type="primary"):
+            chamar_documentos("delete", caminho)
+            limpar_documento_aberto()
+            st.session_state["aviso_documentos"] = "Documento excluído dos buckets."
+            st.rerun()
+        if st.button("Cancelar exclusão"):
+            st.session_state.pop("exclusao_documento", None)
+            st.rerun()
 
 
 def render_envio():
@@ -497,7 +546,8 @@ def pagina_envio():
 def pagina_documentos():
     st.markdown(ESTILOS, unsafe_allow_html=True)
     categoria = st.session_state.setdefault("categoria_documentos", "ambiguidade")
-    render_documentos(categoria)
+    with st.container(key="consulta_documentos"):
+        render_documentos(categoria)
 
 
 # --- Navegação: o comando de inicialização continua sendo app/app.py. ---------
