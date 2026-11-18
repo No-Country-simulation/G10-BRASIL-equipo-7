@@ -56,7 +56,19 @@ class Armazenamento(Protocol):
 
 
 class DocumentoNaoEncontrado(LookupError):
-    """Não há resultado de triagem para a chave na auditoria humana."""
+    """O documento solicitado não existe no armazenamento."""
+
+
+class ArmazenamentoConsulta(Protocol):
+    """Consulta dos documentos com resultado de triagem, separados por categoria."""
+
+    def listar_documentos(self, categoria: str) -> list[dict]: ...
+
+    def consultar_documento(self, categoria: str, chave: str) -> dict: ...
+
+    def ler_original(self, categoria: str, chave: str) -> bytes:
+        """Levanta DocumentoNaoEncontrado quando não há original nem cópia."""
+        ...
 
 
 class DecisaoJaRegistrada(Exception):
