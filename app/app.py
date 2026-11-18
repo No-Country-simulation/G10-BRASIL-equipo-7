@@ -20,8 +20,11 @@ from revisao import render_dados_revisao, render_revisao
 
 load_dotenv()
 
+ASSETS = Path(__file__).resolve().parent / "assets"
+
 # Layout largo (legenda em 3 colunas e cards lado a lado);
-st.set_page_config(page_title="MediFlow", layout="wide")
+st.set_page_config(page_title="MediFlow", page_icon=str(ASSETS / "mediflow-icone.png"), layout="wide")
+st.logo(str(ASSETS / "mediflow-logo.png"), size="large", icon_image=str(ASSETS / "mediflow-icone.png"))
 
 ROTULO = {"rotina": "ROTINA", "urgencia": "URGÊNCIA", "ambiguidade": "AMBIGUIDADE"}
 
@@ -169,21 +172,10 @@ def altura_caixa_json(resultado):
 
 
 def render_cabecalho():
-    mostrar_html(
-        f"""
-        <header class="marca">
-            <div class="marca-icone">
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
-                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
-                     aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            </div>
-            <div>
-                <h1>MediFlow</h1>
-                <p>Triagem de documentos médicos. Somente dados fictícios.</p>
-            </div>
-        </header>
-        """
-    )
+    with st.container(key="marca", horizontal=True, wrap=False, vertical_alignment="center", gap="medium"):
+        st.image(str(ASSETS / "mediflow-icone.png"), width=64)
+        with st.container():
+            mostrar_html("<h1>MediFlow</h1><p>Triagem de documentos médicos.</p>")
 
 
 def render_legenda(ativo=None, contagens=None):

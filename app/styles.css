@@ -66,17 +66,16 @@ footer { visibility: hidden; }
 }
 
 /* ---------- Cabeçalho ---------- */
-.marca {
-    display: flex; align-items: center; gap: 1rem;
+[data-testid="stSidebar"] [data-testid="stSidebarLogo"] {
+    width: 180px; max-width: 100%; height: auto; max-height: 4rem; object-fit: contain;
+}
+.st-key-marca button[aria-label="Fullscreen"] { display: none; }
+.st-key-marca {
     padding-bottom: 1.1rem; margin-bottom: 1.5rem;
     border-bottom: 2px solid #e2e8f0;
 }
-.marca-icone {
-    width: 3.5rem; height: 3.5rem; flex: 0 0 auto; display: grid;
-    place-items: center; border-radius: .75rem; background: #1e40af; color: #fff;
-}
-.marca h1 { font-size: 1.75rem; line-height: 1.1; margin: 0; padding: 0; font-weight: 800; color: #14202b; }
-.marca p { margin: .25rem 0 0; color: #475569; }
+.st-key-marca h1 { font-size: 1.75rem; line-height: 1.1; margin: 0; padding: 0; font-weight: 800; color: #14202b; }
+.st-key-marca p { margin: .25rem 0 0; color: #475569; }
 
 /* ---------- Categorias (3 cartões clicáveis) ---------- */
 [class*="st-key-categoria_"] button[data-testid] {
@@ -264,7 +263,7 @@ footer { visibility: hidden; }
 @media (max-width: 640px) {
     html { font-size: 16px; }
     [data-testid="stMainBlockContainer"], .block-container { padding: 1rem 1rem 2rem; }
-    .marca p { font-size: .85rem; }
+    .st-key-marca p { font-size: .85rem; }
     .banner { padding: 1.25rem; }
     .banner-topo { gap: .9rem; }
     .banner-topo svg { width: 3.5rem; height: 3.5rem; }
