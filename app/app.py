@@ -15,7 +15,9 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 
-from cliente_api import chamar_documentos, mensagem_de_erro, triar
+from cliente_api import chamar_documentos
+from assistente import render_assistente
+from nova_triagem import render_nova_triagem
 from revisao import render_dados_revisao, render_revisao
 
 load_dotenv()
@@ -54,9 +56,6 @@ def rotulo_campo(campo):
 #-----------------------------------------------------------------------------
 
 # --- Constantes e tema ------------------------------------------------------
-CANAIS = ["Ambulatório", "Pronto-Socorro", "Balcão"]
-EXTENSOES = ["pdf", "png", "jpg", "jpeg", "json"]
-
 # Cores e textos de cada classificação.
 #  bg    = fundo do banner e do círculo da legenda
 #  borda = destaque da legenda e barra de confiança
@@ -128,47 +127,6 @@ def icone(nivel, tamanho=36):
 
 
 ESTILOS = "\n<style>\n" + Path(__file__).with_name("styles.css").read_text(encoding="utf-8") + "</style>\n"
-
-
-class ArquivoEnviado:
-    """Cópia simples do arquivo escolhido.
-
-    Tem `name`, `type` e `getvalue()`, que é tudo o que triar() usa.
-    Serve para guardar o arquivo entre a tela de envio e a tela de carregando.
-    """
-
-    def __init__(self, arquivo):
-        self.name = arquivo.name
-        self.type = arquivo.type
-        self._dados = arquivo.getvalue()
-
-    def getvalue(self):
-        return self._dados
-
-
-# --- Componentes de tela ----------------------------------------------------
-@st.dialog("JSON de triagem", width="large")
-def mostrar_json_em_popup(resultado):
-    """Pop-up com o JSON completo da triagem."""
-    st.code(json.dumps(resultado, ensure_ascii=False, indent=2), language="json", wrap_lines=True)
-
-
-#CAMPO JSON
-CARACTERES_POR_LINHA = 34
-ALTURA_FIXA_TRIAGEM = 560
-ALTURA_JSON_MIN, ALTURA_JSON_MAX = 220, 460
-
-
-def altura_caixa_json(resultado):
-    """Altura (em px) da caixa rolável do JSON, limitada entre o mínimo e o máximo."""
-    dados = resultado["dados_extraidos"]
-    campos = linhas = 0
-    if isinstance(dados, dict):
-        for valor in dados.values():
-            campos += 1
-            linhas += max(1, -(-len(formatar_valor(valor)) // CARACTERES_POR_LINHA))
-    altura_dados = 140 + 64 * campos + 32 * linhas
-    return max(ALTURA_JSON_MIN, min(ALTURA_JSON_MAX, altura_dados - ALTURA_FIXA_TRIAGEM))
 
 
 def render_cabecalho():
@@ -499,184 +457,15 @@ def render_acoes_documento(categoria, chave, caminho, detalhe):
             st.rerun()
 
 
-def render_envio():
-    """Tela de envio: card principal + 'Como funciona' ao lado (empilha no celular)."""
-    principal, lateral = st.columns([2.2, 1], gap="large")
-
-    with lateral:
-        with st.container(border=False, key="card_como"):
-            mostrar_html(
-                """
-                <h2 class="titulo-secao">Como funciona</h2>
-                <ol class="passos">
-                    <li>Envie o documento.</li>
-                    <li>O sistema classifica por cor.</li>
-                    <li>Siga a ação indicada no resultado.</li>
-                </ol>
-                """
-            )
-
-    with principal:
-        with st.container(border=False, key="card_envio"):
-            mostrar_html('<h2 class="titulo-secao">Enviar documento para triagem</h2>')
-            mostrar_html('<strong style="font-size:1.1rem">Documento</strong>')
-
-            erro = st.session_state.get("erro")
-            if erro:
-                st.error(erro["mensagem"])
-                with st.expander("Detalhes técnicos"):
-                    st.code(erro["detalhe"])
-                pendente = st.session_state.get("pendente")
-                if pendente and st.button(
-                    f"Tentar novamente com {pendente[0].name}", key="tentar_novamente"
-                ):
-                    st.session_state.pop("erro", None)
-                    st.session_state["carregando"] = True
-                    st.rerun()
-
-            # O texto interno do uploader é nativo (inglês); esta dica orienta em português.
-            mostrar_html(
-                '<p class="dica">Arraste o arquivo para a área tracejada ou use o botão de upload. '
-                "Formatos aceitos: PDF, PNG, JPG, JSON • até 200 MB.</p>"
-            )
-            arquivo = st.file_uploader("Documento", type=EXTENSOES, label_visibility="collapsed")
-            canal = st.selectbox("Canal de origem", CANAIS)
-
-            if st.button("Enviar para triagem", type="primary", key="enviar"):
-                if arquivo is None:
-                    st.error("Selecione um documento antes de enviar.")
-                else:
-                    st.session_state.pop("erro", None)
-                    st.session_state["pendente"] = (ArquivoEnviado(arquivo), canal)
-                    st.session_state["carregando"] = True
-                    st.rerun()
-
-
-def render_carregando():
-    """Cartão 'Analisando documento…' enquanto a API responde, depois chama triar()."""
-    mostrar_html(
-        """
-        <div class="carregando" role="status">
-            <div class="giro"></div>
-            <h2>Analisando documento…</h2>
-            <p>Isso leva apenas alguns segundos.</p>
-        </div>
-        """
-    )
-    arquivo, canal = st.session_state["pendente"]
-    try:
-        st.session_state["resultado"] = triar(arquivo, canal)
-    except (requests.RequestException, ValueError) as erro:
-        st.session_state["erro"] = {
-            "mensagem": mensagem_de_erro(erro),
-            "detalhe": f"{type(erro).__name__}: {erro}",
-        }
-    else:
-        st.session_state.pop("pendente", None)
-    st.session_state["carregando"] = False
-    st.rerun()
-
-
-def render_resultado(resultado):
-    rota = resultado["classificacao"]
-    tema = TEMA[rota]
-    alerta = bool(resultado["alerta_enviado"])
-
-    # O texto do banner segue o campo alerta_enviado: não afirma um alerta que não houve.
-    aviso = "Alerta de urgência enviado. " if alerta else ""
-    detalhe = tema["detalhe"]
-    if rota == "urgencia" and not alerta:
-        detalhe = "Atenção: o alerta de urgência não foi enviado."
-    urgente = " urgente" if rota == "urgencia" else ""
-    papel = "alert" if rota == "urgencia" else "status"
-
-    mostrar_html(
-        f"""
-        <section class="banner{urgente}" role="{papel}"
-                 style="--bg:{tema['bg']};--icone:{tema['icone']}">
-            <div class="banner-topo">
-                {icone(rota, 80)}
-                <div>
-                    <small>Classificação</small>
-                    <h2>{ROTULO[rota]}</h2>
-                    <h3>{tema['acao']}</h3>
-                </div>
-            </div>
-            <p>{aviso}{detalhe} Encaminhado para <strong>{esc(resultado['destino_principal'])}</strong>.</p>
-        </section>
-        """
-    )
-
-    col_dados, col_triagem = st.columns(2, gap="large")
-
-    with col_dados:
-        with st.container(border=False, key="card_dados"):
-            mostrar_html('<h2 class="titulo-secao">Dados extraídos</h2>')
-            mostrar_html(
-                f'<p class="id-doc">Documento: <code>{esc(resultado["documento_id"])}</code></p>'
-            )
-            dados = resultado["dados_extraidos"]
-            if dados:
-                for campo, valor in dados.items():
-                    mostrar_html(
-                        f'<div class="campo"><small>{esc(rotulo_campo(campo))}</small>'
-                        f"<strong>{esc(formatar_valor(valor))}</strong></div>"
-                    )
-            else:
-                mostrar_html(
-                    '<div class="campo"><strong>Nenhum dado foi extraído deste documento.</strong></div>'
-                )
-
-    with col_triagem:
-        with st.container(border=False, key="card_triagem"):
-            mostrar_html('<h2 class="titulo-secao">Triagem</h2>')
-            score = float(resultado["score_confianca"])
-            percentual = round(score * 100)
-            rotulo_conf = "Alta" if percentual >= 85 else "Média" if percentual >= 60 else "Baixa"
-            largura = max(0, min(100, percentual))
-            mostrar_html(
-                f"""
-                <div style="--borda:{tema['borda']};--soft:{tema['soft']};--tinta:{tema['tinta']}">
-                    <div class="confianca-topo">
-                        <strong>Confiança da análise</strong>
-                        <strong>{percentual}% <small>({rotulo_conf})</small></strong>
-                    </div>
-                    <div class="barra" role="progressbar" aria-label="Confiança"
-                         aria-valuenow="{largura}" aria-valuemin="0" aria-valuemax="100">
-                        <div style="width:{largura}%"></div>
-                    </div>
-                    <p class="bruto">Valor bruto: {score:.2f}</p>
-                    <div class="justificativa">
-                        <small>Justificativa</small>
-                        <p>{esc(resultado['justificativa'])}</p>
-                    </div>
-                </div>
-                """
-            )
-            # JSON em caixa com rolagem interna (altura alinhada ao cartão ao lado) + pop-up.
-            mostrar_html('<small class="rotulo-json">JSON de triagem</small>')
-            with st.container(height=altura_caixa_json(resultado), border=True):
-                st.code(json.dumps(resultado, ensure_ascii=False, indent=2), language="json", wrap_lines=True)
-            if st.button("Ver JSON em tela cheia", key="json_popup"):
-                mostrar_json_em_popup(resultado)
-
-    if st.button("Enviar outro documento", type="primary", key="reiniciar"):
-        st.session_state.pop("resultado")
-        st.rerun()
-
-
 def pagina_envio():
     st.markdown(ESTILOS, unsafe_allow_html=True)
     render_cabecalho()
-    resultado = st.session_state.get("resultado")
-    render_legenda(resultado["classificacao"] if resultado else None)
-    st.write("")
-    if st.session_state.get("carregando") and "pendente" in st.session_state:
-        render_carregando()
-    elif resultado is None:
-        render_envio()
-    else:
-        render_resultado(resultado)
+    with st.container(key="envio_assistente"):
+        esquerda, direita = st.columns([1, 1.2], gap="large")
+        with esquerda, st.container(key="painel_nova_triagem"):
+            render_nova_triagem(formatar_valor)
+        with direita, st.container(key="painel_assistente"):
+            render_assistente()
 
 
 def pagina_documentos():

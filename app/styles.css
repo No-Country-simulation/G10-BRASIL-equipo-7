@@ -271,3 +271,43 @@ footer { visibility: hidden; }
     .banner-topo h3 { font-size: 1.15rem; }
     [class*="st-key-card_"] { padding: 1rem; }
 }
+
+/* ---------- Nova triagem e assistente (somente na página de envio) ---------- */
+[data-testid="stMainBlockContainer"]:has(.st-key-envio_assistente) { max-width: 1440px; }
+.st-key-envio_assistente :is(.st-key-painel_nova_triagem, .st-key-painel_assistente) {
+    padding: 1.25rem; background: #fff; border: 1px solid #dfe6ee;
+    border-radius: 1rem; box-shadow: 0 2px 8px rgb(15 23 42 / .03); min-width: 0;
+}
+.st-key-envio_assistente h3 { font-size: 1.35rem; padding-top: 0; }
+.st-key-envio_assistente [data-testid="stCaptionContainer"] { color: #64748b; }
+.st-key-envio_assistente [data-testid="stWidgetLabel"] p { font-size: .95rem; }
+.st-key-envio_assistente [data-testid="stFileUploaderDropzone"] {
+    min-height: 10rem; padding: 1rem; border: 2px dashed #cbd5e1;
+    background: #f8fafc; border-radius: .75rem;
+}
+.st-key-envio_assistente [data-testid="stFileUploaderDropzone"] button * { font-size: .9rem !important; }
+.st-key-envio_assistente .stSelectbox [data-baseweb="select"] > div {
+    min-height: 2.75rem; border: 1px solid #cbd5e1; border-radius: .5rem;
+}
+.st-key-envio_assistente :is(.st-key-enviar, .st-key-reiniciar, .st-key-nova_conversa, .st-key-repetir_chat) button {
+    min-height: 2.75rem; padding: .5rem .9rem; border-radius: .65rem;
+}
+.st-key-envio_assistente :is(.st-key-enviar, .st-key-reiniciar, .st-key-nova_conversa, .st-key-repetir_chat) button p {
+    font-size: .9rem !important; font-weight: 600 !important;
+}
+.st-key-nova_conversa { flex-shrink: 0; }
+.st-key-historico_chat { border-top: 1px solid #edf1f5; padding-top: .5rem; }
+.st-key-historico_chat [data-testid="stChatMessage"] {
+    padding: .8rem; border-radius: .75rem; background: #f5f8fa;
+}
+.st-key-historico_chat [data-testid="stChatMessage"] p { font-size: .9rem; line-height: 1.6; overflow-wrap: anywhere; }
+.st-key-historico_chat [data-testid="stChatMessageAvatarCustom"] { object-fit: contain; }
+.st-key-envio_assistente [data-testid="stChatInput"] { border-radius: .75rem; }
+@media (max-width: 1050px) {
+    .st-key-envio_assistente [data-testid="stHorizontalBlock"]:has(.st-key-painel_nova_triagem) {
+        flex-direction: column;
+    }
+    .st-key-envio_assistente [data-testid="stColumn"]:has(:is(.st-key-painel_nova_triagem, .st-key-painel_assistente)) {
+        width: 100% !important; flex: 1 1 auto !important; min-width: 0 !important;
+    }
+}

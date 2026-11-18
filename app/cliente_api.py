@@ -1,7 +1,10 @@
 """Cliente HTTP da interface para triagem e consulta de documentos."""
+import json
 import os
 
 import requests
+
+from agent.chat_schemas import RespostaChat
 
 
 CAMPOS_RESPOSTA = (
@@ -91,4 +94,32 @@ def chamar_auditoria(metodo, caminho="", **parametros):
     )
     resposta.raise_for_status()
     return resposta
+
+
+def conversar(mensagem, historico):
+    """Campos sem arquivo também usam multipart, como no contrato de POST /chat."""
+    resposta = requests.post(
+        f"{url_api()}/chat",
+        files={
+            "mensagem": (None, mensagem),
+            "historico": (None, json.dumps(historico, ensure_ascii=False)),
+            "referencias": (None, "[]"),
+        },
+        timeout=TIMEOUT_SEGUNDOS,
+    )
+    resposta.raise_for_status()
+    return RespostaChat.model_validate(resposta.json()).model_dump()
+
+
+def mensagem_de_erro_chat(erro):
+    if isinstance(erro, requests.Timeout):
+        return "A consulta demorou mais que o esperado. Tente novamente."
+    if isinstance(erro, requests.ConnectionError):
+        return "Não foi possível conectar ao assistente. Verifique se a API está rodando."
+    if isinstance(erro, requests.HTTPError):
+        status = erro.response.status_code if erro.response is not None else None
+        if status == 422:
+            return "A API não aceitou a pergunta ou o histórico da conversa."
+        return "O assistente está indisponível no momento. Tente novamente."
+    return "O assistente devolveu uma resposta em formato inesperado."
 
