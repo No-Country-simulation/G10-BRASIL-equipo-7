@@ -84,3 +84,11 @@ def chamar_documentos(metodo, caminho="", **parametros):
     resposta.raise_for_status()
     return resposta
 
+
+def chamar_auditoria(metodo, caminho="", **parametros):
+    resposta = getattr(requests, metodo)(
+        f"{url_api()}/auditoria{caminho}", timeout=75, **parametros
+    )
+    resposta.raise_for_status()
+    return resposta
+

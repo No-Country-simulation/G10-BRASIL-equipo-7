@@ -83,6 +83,8 @@ class ArmazenamentoConsulta(Protocol):
 
     def ler_decisao(self, chave: str) -> dict | None: ...
 
+    def ler_metadados_revisao(self, chave: str) -> dict[str, str]: ...
+
 
 class DecisaoJaRegistrada(Exception):
     """O documento já tem decisão; a decisão original nunca é sobrescrita."""
@@ -129,3 +131,7 @@ class ArmazenamentoAuditoria(Protocol):
     ) -> dict:
         """Preserva o histórico e confirma a revisão após persistir o encaminhamento."""
         ...
+
+    def iniciar_alerta_revisao(self, chave: str) -> dict | None: ...
+
+    def concluir_alerta_revisao(self, chave: str, enviado: bool) -> None: ...

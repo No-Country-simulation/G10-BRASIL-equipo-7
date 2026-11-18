@@ -13,6 +13,7 @@ import logging
 import os
 from pathlib import Path
 import re
+from threading import RLock
 
 import json
 
@@ -88,6 +89,7 @@ class ArmazenamentoObjectStorage:
 
     def __init__(self, cliente=None, buckets: dict[str, str] | None = None):
         self.cliente = cliente if cliente is not None else criar_cliente()
+        self._lock_revisao = RLock()
         self.buckets = buckets or {
             nome: os.getenv(variavel) or padrao
             for nome, (variavel, padrao) in BUCKETS.items()
@@ -322,9 +324,10 @@ class ArmazenamentoObjectStorage:
         validar_chave(chave)
         # A OCI não garante gravação condicional pela API S3; a checagem prévia
         # cobre o uso normal (um revisor por documento) e o log registra o resto.
-        if self.ler_decisao(chave) is not None:
-            raise DecisaoJaRegistrada(chave)
-        self._gravar_decisao(chave, decisao)
+        with self._lock_revisao:
+            if self.ler_decisao(chave) is not None:
+                raise DecisaoJaRegistrada(chave)
+            self._gravar_decisao(chave, decisao)
 
     def _gravar_decisao(self, chave: str, decisao: dict) -> None:
         self._enviar(
@@ -333,6 +336,14 @@ class ArmazenamentoObjectStorage:
         )
 
     def encaminhar_documento(
+        self, chave: str, destino: str, departamento: str, revisor: str,
+        observacao: str = "",
+    ) -> dict:
+        # Evita que requisições concorrentes deste processo regravem a reserva do alerta.
+        with self._lock_revisao:
+            return self._encaminhar_documento(chave, destino, departamento, revisor, observacao)
+
+    def _encaminhar_documento(
         self, chave: str, destino: str, departamento: str, revisor: str,
         observacao: str = "",
     ) -> dict:
@@ -413,6 +424,33 @@ class ArmazenamentoObjectStorage:
             raise FalhaEncaminhamentoDocumento(etapa) from erro
         log.info("Encaminhamento concluído: chave=%s destino=%s", chave, destino)
         return concluida
+
+    def iniciar_alerta_revisao(self, chave: str) -> dict | None:
+        """Reserva a tentativa antes do webhook; repetições não reenviam o alerta."""
+        with self._lock_revisao:
+            decisao = self.ler_decisao(chave)
+            if not decisao or decisao.get("estado") != "concluido" or decisao.get("destino") != "urgencia":
+                raise ValueError("O encaminhamento urgente deve estar concluído")
+            if decisao.get("alerta_status") is not None:
+                return None
+            resultado = self.consultar_documento("urgencia", chave)["resultado"]
+            if resultado is None:
+                raise ValueError("Resultado encaminhado ilegível")
+            self._gravar_decisao(chave, {**decisao, "alerta_status": "em_envio"})
+            return resultado
+
+    def concluir_alerta_revisao(self, chave: str, enviado: bool) -> None:
+        decisao = self.ler_decisao(chave)
+        if not decisao or decisao.get("alerta_status") != "em_envio":
+            raise ValueError("Não há tentativa de alerta reservada")
+        if enviado:
+            resultado = self.consultar_documento("urgencia", chave)["resultado"]
+            self.salvar_resultado(
+                chave, {**resultado, "alerta_enviado": True}, self.ler_metadados_revisao(chave),
+            )
+        self._gravar_decisao(chave, {
+            **decisao, "alerta_status": "enviado" if enviado else "falha",
+        })
 
 
 @lru_cache(maxsize=1)

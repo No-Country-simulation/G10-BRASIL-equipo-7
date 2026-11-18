@@ -1,12 +1,13 @@
 """Consulta dos documentos armazenados nos buckets, por categoria de triagem."""
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel, TypeAdapter
 
 from agent.schemas import Rota
 from storage.base import (
@@ -30,6 +31,8 @@ class ItemDocumento(BaseModel):
     original_disponivel: bool
     erro: str | None
     situacao_revisao: Literal["pendente", "revisado"] | None = None
+    prioridade_revisao: Literal["alta", "normal"] | None = None
+    recebido_em: AwareDatetime | None = None
 
 
 class DetalheDocumento(ItemDocumento):
@@ -98,6 +101,13 @@ def _com_revisao(armazenamento: ArmazenamentoConsulta, documento: dict):
     documento["situacao_revisao"] = (
         "revisado" if decisao is not None and decisao.get("estado") != "pendente" else "pendente"
     )
+    metadados = _executar(armazenamento.ler_metadados_revisao, documento["chave"])
+    documento["prioridade_revisao"] = "alta" if metadados.get("prioridade-revisao") == "alta" else "normal"
+    try:
+        recebido = metadados.get("recebido-em")
+        documento["recebido_em"] = TypeAdapter(AwareDatetime).validate_python(recebido) if recebido else None
+    except ValueError:
+        documento["recebido_em"] = None
     return documento
 
 
@@ -118,6 +128,11 @@ def listar(
     documentos = _executar(armazenamento.listar_documentos, categoria)
     if incluir_revisao or situacao_revisao is not None:
         documentos = [_com_revisao(armazenamento, item) for item in documentos]
+        if categoria == "ambiguidade":
+            documentos.sort(key=lambda item: (
+                item["prioridade_revisao"] != "alta", item["recebido_em"] is None,
+                item["recebido_em"] or datetime.max.replace(tzinfo=timezone.utc), item["chave"],
+            ))
     if situacao_revisao in ("pendentes", "revisados"):
         situacao = "pendente" if situacao_revisao == "pendentes" else "revisado"
         documentos = [item for item in documentos if item["situacao_revisao"] == situacao]

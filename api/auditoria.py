@@ -13,6 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from agent.config import carregar_configuracao
+from agent.schemas import ResultadoTriagem
+from alerts.urgencia import enviar_alerta
 from storage.base import (
     ArmazenamentoAuditoria, DecisaoJaRegistrada, DocumentoNaoEncontrado,
     FalhaEncaminhamentoDocumento, validar_chave,
@@ -97,6 +99,13 @@ class EncaminhamentoResposta(EncaminhamentoEntrada):
     estado: Literal["concluido"]
     iniciado_em: AwareDatetime
     decidido_em: AwareDatetime
+    alerta_status: Literal["em_envio", "enviado", "falha"] | None = None
+    aviso: str | None = None
+
+
+class OpcoesRevisao(BaseModel):
+    departamentos: list[str]
+    destino_urgencia: str
 
 
 class DetalheAuditoria(BaseModel):
@@ -124,6 +133,19 @@ def _ler_resultado(armazenamento: ArmazenamentoAuditoria, chave: str) -> dict:
 
 # Os endpoints são síncronos: o FastAPI os executa em thread, sem travar o loop
 # durante as chamadas ao armazenamento.
+@router.get("/opcoes", response_model=OpcoesRevisao)
+def opcoes_revisao():
+    """Departamentos vigentes para preencher o formulário de revisão."""
+    try:
+        configuracao = carregar_configuracao().roteamento
+    except (OSError, ValueError):
+        raise HTTPException(status_code=503, detail="Configuração de roteamento indisponível.")
+    return {
+        "departamentos": sorted(set(configuracao.departamentos_por_categoria.values())),
+        "destino_urgencia": configuracao.destino_urgencia,
+    }
+
+
 @router.get("", response_model=list[ItemAuditoria])
 def listar(
     armazenamento: Armazenamento,
@@ -211,7 +233,7 @@ def encaminhar(chave: str, entrada: EncaminhamentoEntrada, armazenamento: Armaze
     if departamento not in permitidos:
         raise HTTPException(status_code=422, detail="Departamento incompatível com o destino.")
     try:
-        return armazenamento.encaminhar_documento(
+        decisao = armazenamento.encaminhar_documento(
             chave, entrada.destino, departamento, entrada.revisor, entrada.observacao,
         )
     except DocumentoNaoEncontrado:
@@ -226,3 +248,18 @@ def encaminhar(chave: str, entrada: EncaminhamentoEntrada, armazenamento: Armaze
     except (BotoCoreError, ClientError, OSError, RuntimeError, ValueError) as erro:
         log.warning("Falha no encaminhamento: chave=%s (%s)", chave, type(erro).__name__)
         raise HTTPException(status_code=503, detail="Encaminhamento indisponível. Tente novamente.")
+    if entrada.destino == "urgencia":
+        try:
+            resultado = armazenamento.iniciar_alerta_revisao(chave)
+            if resultado is not None:
+                enviado = False
+                try:
+                    enviado = enviar_alerta(ResultadoTriagem.model_validate(resultado).model_dump(mode="json"))
+                except Exception as erro:
+                    log.warning("Falha no alerta da revisão: chave=%s (%s)", chave, type(erro).__name__)
+                armazenamento.concluir_alerta_revisao(chave, enviado)
+            decisao = armazenamento.ler_decisao(chave)
+        except Exception as erro:
+            log.warning("Falha ao registrar alerta da revisão: chave=%s (%s)", chave, type(erro).__name__)
+            decisao = {**decisao, "aviso": "Encaminhamento confirmado, mas o registro do alerta não pôde ser confirmado."}
+    return decisao

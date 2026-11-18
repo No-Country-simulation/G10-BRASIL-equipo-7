@@ -16,6 +16,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from cliente_api import chamar_documentos, mensagem_de_erro, triar
+from revisao import render_revisao
 
 load_dotenv()
 
@@ -318,7 +319,9 @@ def render_lista_documentos(itens, categoria):
         limpar_documento_aberto()
     with st.container(height=440, border=False):
         for chave in filtrados:
-            if st.button(rotulos[chave], key=f"arquivo_{categoria}_{chave}",
+            item = next(item for item in itens if item["chave"] == chave)
+            rotulo = rotulos[chave] + (" · Revisão prioritária" if item.get("prioridade_revisao") == "alta" else "")
+            if st.button(rotulo, key=f"arquivo_{categoria}_{chave}",
                          icon=":material/description:", width="stretch",
                          type="primary" if chave == st.session_state[estado] else "secondary"):
                 if chave != st.session_state[estado]:
@@ -335,9 +338,13 @@ def render_campo_resumo(titulo, valor):
                  f'<strong>{esc(texto)}</strong></div>')
 
 
-def render_resumo_documento(detalhe):
+def render_resumo_documento(detalhe, categoria, chave):
     resultado = detalhe.get("resultado")
-    resumo, bruto = st.tabs(["Resumo", "JSON"])
+    abas = st.tabs(["Resumo", "JSON", "Revisão"] if categoria == "ambiguidade" else ["Resumo", "JSON"])
+    resumo, bruto = abas[:2]
+    if categoria == "ambiguidade":
+        with abas[2]:
+            render_revisao(chave, detalhe)
     with bruto:
         st.json(resultado)
     with resumo:
@@ -394,8 +401,27 @@ def render_documentos(categoria):
     aviso = st.session_state.pop("aviso_documentos", None)
     if aviso:
         st.success(aviso)
+    erro_revisao = st.session_state.pop("erro_revisao", None)
+    if erro_revisao:
+        st.error(erro_revisao[1])
+    encaminhado = st.session_state.get("encaminhamento_concluido")
+    if encaminhado:
+        destino = encaminhado["destino"]
+        st.success(f"Documento encaminhado para {ROTULO[destino]}.")
+        if encaminhado.get("aviso"):
+            st.warning(encaminhado["aviso"])
+        elif destino == "urgencia" and encaminhado.get("alerta_status") != "enviado":
+            st.warning("Encaminhamento confirmado. O envio do alerta não foi confirmado.")
+        if st.button(f"Abrir {ROTULO[destino]}"):
+            st.session_state["categoria_documentos"] = destino
+            st.session_state.pop("encaminhamento_concluido", None)
+            limpar_documento_aberto()
+            st.rerun()
     try:
-        itens = chamar_documentos("get", params={"categoria": categoria}).json()
+        parametros = {"categoria": categoria}
+        if categoria == "ambiguidade":
+            parametros["situacao_revisao"] = "todos"
+        itens = chamar_documentos("get", params=parametros).json()
         if not isinstance(itens, list) or any(
             not isinstance(item, dict) or not isinstance(item.get("chave"), str) for item in itens
         ):
@@ -405,8 +431,15 @@ def render_documentos(categoria):
         mostrar_erro_documentos(erro)
         return
     contagens = st.session_state.setdefault("contagens_documentos", {})
-    contagens[categoria] = len(itens)
+    contagens[categoria] = sum(item.get("situacao_revisao") != "revisado" for item in itens) if categoria == "ambiguidade" else len(itens)
     render_legenda(categoria, contagens)
+    if categoria == "ambiguidade":
+        if st.session_state.pop("apos_encaminhamento", False):
+            st.session_state["filtro_revisao"] = "Pendentes"
+            limpar_documento_aberto()
+        filtro = st.radio("Revisão humana", ["Pendentes", "Revisados", "Todos"], horizontal=True, key="filtro_revisao")
+        if filtro != "Todos":
+            itens = [item for item in itens if (item.get("situacao_revisao") == "revisado") == (filtro == "Revisados")]
     col_arquivos, col_original, col_resultado = st.columns([25, 45, 30])
     painel_arquivos = col_arquivos.container(border=True, key="painel_arquivos")
     painel_original = col_original.container(border=True, key="painel_original")
@@ -422,11 +455,11 @@ def render_documentos(categoria):
         return
     try:
         caminho = f"/{categoria}/{quote(chave, safe='')}"
-        detalhe = chamar_documentos("get", caminho).json()
+        detalhe = chamar_documentos("get", caminho, params={"incluir_revisao": categoria == "ambiguidade"}).json()
         if not isinstance(detalhe, dict) or "resultado" not in detalhe:
             raise ValueError("Detalhe do documento em formato inesperado.")
         with painel_resultado:
-            render_resumo_documento(detalhe)
+            render_resumo_documento(detalhe, categoria, chave)
         with painel_original:
             render_acoes_documento(categoria, chave, caminho, detalhe)
     except (requests.RequestException, ValueError) as erro:
@@ -645,11 +678,18 @@ def pagina_documentos():
         render_documentos(categoria)
 
 
+def redirecionar_auditoria():
+    st.session_state["categoria_documentos"] = "ambiguidade"
+    st.session_state["filtro_revisao"] = "Pendentes"
+    limpar_documento_aberto()
+    st.switch_page(PAGINA_DOCUMENTOS)
+
+
 # --- Navegação: o comando de inicialização continua sendo app/app.py. ---------
 PAGINA_ENVIO = st.Page(pagina_envio, title="Enviar documento", icon=":material/upload_file:", default=True)
 PAGINA_DOCUMENTOS = st.Page(pagina_documentos, title="Documentos", icon=":material/folder:", url_path="documentos")
 st.navigation([
     PAGINA_ENVIO,
     PAGINA_DOCUMENTOS,
-    st.Page("pages/1_Auditoria.py", title="Auditoria", icon=":material/fact_check:", url_path="Auditoria"),
+    st.Page(redirecionar_auditoria, title="Auditoria", url_path="Auditoria", visibility="hidden"),
 ]).run()
