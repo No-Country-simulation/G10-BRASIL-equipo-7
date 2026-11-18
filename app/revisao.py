@@ -1,10 +1,24 @@
 """Revisão humana do documento selecionado, sempre pela API."""
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 import requests
 import streamlit as st
 
 from cliente_api import chamar_auditoria, chamar_documentos
+
+
+def render_dados_revisao(decisao, render_campo):
+    data = decisao.get("decidido_em")
+    if data:
+        try:
+            data = datetime.fromisoformat(data).astimezone(timezone.utc).strftime("%d/%m/%Y às %H:%M UTC")
+        except (TypeError, ValueError):
+            pass
+    st.markdown("#### Revisão humana")
+    for titulo, valor in (("Revisor", decisao.get("revisor")),
+                         ("Observação", decisao.get("observacao")), ("Data da revisão", data)):
+        render_campo(titulo, valor)
 
 
 def render_revisao(chave, detalhe):
@@ -82,7 +96,7 @@ def render_revisao(chave, detalhe):
         if not isinstance(resposta, dict) or resposta.get("estado") != "concluido":
             raise ValueError("Resposta de encaminhamento incompatível")
     except (requests.RequestException, ValueError) as erro:
-        mensagem = "Não foi possível confirmar o encaminhamento. Confira Pendentes e Revisados antes de tentar novamente."
+        mensagem = "Não foi possível confirmar o encaminhamento. Confira Ambiguidade e a categoria de destino antes de tentar novamente."
         if isinstance(erro, requests.HTTPError) and erro.response is not None:
             try:
                 detalhe_erro = erro.response.json().get("detail")

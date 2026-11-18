@@ -16,7 +16,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from cliente_api import chamar_documentos, mensagem_de_erro, triar
-from revisao import render_revisao
+from revisao import render_dados_revisao, render_revisao
 
 load_dotenv()
 
@@ -334,8 +334,9 @@ def render_lista_documentos(itens, categoria):
 def render_campo_resumo(titulo, valor):
     texto = formatar_valor(valor)
     texto = "Não informado" if texto == "não informado" else texto
+    texto_html = "<br>".join(esc(texto).splitlines())
     mostrar_html(f'<div class="resumo-campo"><small>{esc(titulo)}</small>'
-                 f'<strong>{esc(texto)}</strong></div>')
+                 f'<strong>{texto_html}</strong></div>')
 
 
 def render_resumo_documento(detalhe, categoria, chave):
@@ -368,7 +369,13 @@ def render_resumo_documento(detalhe, categoria, chave):
             st.progress(float(score))
         else:
             render_campo_resumo("Confiança da análise", None)
-        render_campo_resumo("Justificativa", resultado.get("justificativa"))
+        decisao = detalhe.get("decisao")
+        revisado = isinstance(decisao, dict) and decisao.get("estado") == "concluido"
+        justificativa = detalhe.get("justificativa_original") if revisado else None
+        render_campo_resumo("Justificativa da análise automática" if revisado else "Justificativa",
+                           justificativa if justificativa is not None else resultado.get("justificativa"))
+        if revisado:
+            render_dados_revisao(decisao, render_campo_resumo)
         if resultado.get("alerta_enviado") is True:
             st.success("Alerta enviado.")
         elif rota == "urgencia":
@@ -420,7 +427,7 @@ def render_documentos(categoria):
     try:
         parametros = {"categoria": categoria}
         if categoria == "ambiguidade":
-            parametros["situacao_revisao"] = "todos"
+            parametros["situacao_revisao"] = "pendentes"
         itens = chamar_documentos("get", params=parametros).json()
         if not isinstance(itens, list) or any(
             not isinstance(item, dict) or not isinstance(item.get("chave"), str) for item in itens
@@ -431,15 +438,10 @@ def render_documentos(categoria):
         mostrar_erro_documentos(erro)
         return
     contagens = st.session_state.setdefault("contagens_documentos", {})
-    contagens[categoria] = sum(item.get("situacao_revisao") != "revisado" for item in itens) if categoria == "ambiguidade" else len(itens)
+    contagens[categoria] = len(itens)
     render_legenda(categoria, contagens)
-    if categoria == "ambiguidade":
-        if st.session_state.pop("apos_encaminhamento", False):
-            st.session_state["filtro_revisao"] = "Pendentes"
-            limpar_documento_aberto()
-        filtro = st.radio("Revisão humana", ["Pendentes", "Revisados", "Todos"], horizontal=True, key="filtro_revisao")
-        if filtro != "Todos":
-            itens = [item for item in itens if (item.get("situacao_revisao") == "revisado") == (filtro == "Revisados")]
+    if st.session_state.pop("apos_encaminhamento", False):
+        limpar_documento_aberto()
     col_arquivos, col_original, col_resultado = st.columns([25, 45, 30])
     painel_arquivos = col_arquivos.container(border=True, key="painel_arquivos")
     painel_original = col_original.container(border=True, key="painel_original")
@@ -455,7 +457,7 @@ def render_documentos(categoria):
         return
     try:
         caminho = f"/{categoria}/{quote(chave, safe='')}"
-        detalhe = chamar_documentos("get", caminho, params={"incluir_revisao": categoria == "ambiguidade"}).json()
+        detalhe = chamar_documentos("get", caminho, params={"incluir_revisao": True}).json()
         if not isinstance(detalhe, dict) or "resultado" not in detalhe:
             raise ValueError("Detalhe do documento em formato inesperado.")
         with painel_resultado:
@@ -680,7 +682,6 @@ def pagina_documentos():
 
 def redirecionar_auditoria():
     st.session_state["categoria_documentos"] = "ambiguidade"
-    st.session_state["filtro_revisao"] = "Pendentes"
     limpar_documento_aberto()
     st.switch_page(PAGINA_DOCUMENTOS)
 

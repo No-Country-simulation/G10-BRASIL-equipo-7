@@ -38,6 +38,7 @@ class ItemDocumento(BaseModel):
 class DetalheDocumento(ItemDocumento):
     resultado: dict[str, Any] | None
     decisao: dict[str, Any] | None = None
+    justificativa_original: str | None = None
 
 
 class ObjetoArmazenado(BaseModel):
@@ -87,8 +88,6 @@ def _consultar(armazenamento: ArmazenamentoConsulta, categoria: Rota, chave: str
 
 
 def _com_revisao(armazenamento: ArmazenamentoConsulta, documento: dict):
-    if documento["categoria"] != "ambiguidade":
-        return documento
     documento = dict(documento)
     try:
         decisao = _executar(armazenamento.ler_decisao, documento["chave"])
@@ -98,6 +97,20 @@ def _com_revisao(armazenamento: ArmazenamentoConsulta, documento: dict):
         decisao = None
         documento["erro"] = documento.get("erro") or "O registro da revisão está ilegível."
     documento["decisao"] = decisao
+    if documento["categoria"] != "ambiguidade":
+        if decisao and decisao.get("estado") == "concluido" and decisao.get("destino") == documento["categoria"]:
+            documento["situacao_revisao"] = "revisado"
+            try:
+                original = armazenamento.ler_resultado(documento["chave"])
+                if isinstance(original, dict) and isinstance(original.get("justificativa"), str):
+                    documento["justificativa_original"] = original["justificativa"]
+            except DocumentoNaoEncontrado:
+                pass
+            except (ValueError, UnicodeDecodeError):
+                documento["erro"] = documento.get("erro") or "O histórico da triagem está ilegível."
+            except (BotoCoreError, ClientError, OSError, RuntimeError):
+                raise HTTPException(status_code=503, detail="Histórico da revisão temporariamente indisponível.")
+        return documento
     documento["situacao_revisao"] = (
         "revisado" if decisao is not None and decisao.get("estado") != "pendente" else "pendente"
     )
@@ -142,7 +155,7 @@ def listar(
 @router.get("/{categoria}/{chave}", response_model=DetalheDocumento, response_model_exclude_unset=True)
 def detalhar(
     categoria: Rota, chave: str, armazenamento: Armazenamento,
-    incluir_revisao: Annotated[bool, Query(description="Inclui a decisão registrada em Ambiguidade")] = False,
+    incluir_revisao: Annotated[bool, Query(description="Inclui a decisão e o histórico da revisão, inclusive na categoria de destino")] = False,
 ):
     """Retorna o JSON da triagem em resultado; se ilegível, retorna erro e resultado nulo."""
     documento = _consultar(armazenamento, categoria, chave)
