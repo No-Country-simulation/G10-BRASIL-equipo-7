@@ -19,7 +19,7 @@ from botocore.exceptions import ClientError
 
 from storage.base import (
     DESTINOS, PASTA_AUDITORIA, SUFIXO_DECISAO, SUFIXO_TRIAGEM,
-    DecisaoJaRegistrada, DocumentoNaoEncontrado,
+    DecisaoJaRegistrada, DocumentoNaoEncontrado, FalhaExclusaoDocumento,
     serializar_decisao, serializar_resultado, validar_chave,
 )
 
@@ -211,6 +211,36 @@ class ArmazenamentoObjectStorage:
             except DocumentoNaoEncontrado:
                 continue  # O resultado pode ter sido removido durante a listagem.
         return documentos
+
+    def excluir_documento(self, categoria: str, chave: str) -> dict:
+        bucket, prefixo = self._destino_categoria(categoria)
+        validar_chave(chave)
+        resultado = f"{prefixo}{chave}{SUFIXO_TRIAGEM}"
+        try:
+            self.cliente.head_object(Bucket=bucket, Key=resultado)
+        except ClientError as erro:
+            if str(erro.response.get("Error", {}).get("Code")) in {"NoSuchKey", "404", "NotFound"}:
+                raise DocumentoNaoEncontrado(chave) from erro
+            raise
+        objetos = [
+            {"bucket": self._bucket_auditoria(), "objeto": f"{PASTA_AUDITORIA}/{chave}{SUFIXO_DECISAO}"},
+            {"bucket": self._bucket_auditoria(), "objeto": f"{PASTA_AUDITORIA}/{chave}"},
+            {"bucket": self.buckets["recebidos"], "objeto": chave},
+            {"bucket": bucket, "objeto": resultado},
+        ]
+        removidos = []
+        # O resultado fica por último: uma falha mantém o documento localizável.
+        for indice, objeto in enumerate(objetos):
+            try:
+                # DeleteObject também confirma sucesso para objetos já ausentes.
+                self.cliente.delete_object(Bucket=objeto["bucket"], Key=objeto["objeto"])
+            except Exception as erro:
+                log.warning("Falha ao excluir: bucket=%s objeto=%s (%s)",
+                            objeto["bucket"], objeto["objeto"], type(erro).__name__)
+                raise FalhaExclusaoDocumento(removidos, objetos[indice:]) from erro
+            removidos.append(objeto)
+            log.info("Exclusão confirmada: bucket=%s objeto=%s", objeto["bucket"], objeto["objeto"])
+        return {"removidos": removidos, "pendentes": []}
 
     # --- Auditoria humana (#30) -------------------------------------------------
 

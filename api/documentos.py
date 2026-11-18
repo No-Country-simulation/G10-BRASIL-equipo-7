@@ -9,7 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from agent.schemas import Rota
-from storage.base import ArmazenamentoConsulta, DocumentoNaoEncontrado, validar_chave
+from storage.base import (
+    ArmazenamentoConsulta, DocumentoNaoEncontrado, FalhaExclusaoDocumento, validar_chave,
+)
 from storage.oci_storage import TIPOS, obter_armazenamento_oci
 
 
@@ -33,11 +35,26 @@ class DetalheDocumento(ItemDocumento):
     resultado: dict[str, Any] | None
 
 
+class ObjetoArmazenado(BaseModel):
+    bucket: str
+    objeto: str
+
+
+class ResultadoExclusao(BaseModel):
+    removidos: list[ObjetoArmazenado]
+    pendentes: list[ObjetoArmazenado]
+
+
 def _executar(operacao, *argumentos):
     try:
         return operacao(*argumentos)
     except DocumentoNaoEncontrado:
         raise HTTPException(status_code=404, detail="Documento não encontrado.")
+    except FalhaExclusaoDocumento as erro:
+        raise HTTPException(status_code=503, detail={
+            "mensagem": "Exclusão não concluída. Tente novamente.",
+            "removidos": erro.removidos, "pendentes": erro.pendentes,
+        })
     except (BotoCoreError, ClientError, OSError, RuntimeError) as erro:
         log.warning("Falha na consulta de documentos: %s", type(erro).__name__)
         raise HTTPException(status_code=503, detail="Armazenamento temporariamente indisponível.")
@@ -50,13 +67,17 @@ def obter_armazenamento_documentos() -> ArmazenamentoConsulta:
 Armazenamento = Annotated[ArmazenamentoConsulta, Depends(obter_armazenamento_documentos)]
 
 
-def _consultar(armazenamento: ArmazenamentoConsulta, categoria: Rota, chave: str):
+def _validar_chave(chave: str):
     try:
         validar_chave(chave)
         if any(ord(caractere) < 32 or ord(caractere) == 127 for caractere in chave):
             raise ValueError("Chave com caracteres de controle")
     except ValueError:
         raise HTTPException(status_code=404, detail="Documento não encontrado.")
+
+
+def _consultar(armazenamento: ArmazenamentoConsulta, categoria: Rota, chave: str):
+    _validar_chave(chave)
     return _executar(armazenamento.consultar_documento, categoria, chave)
 
 
@@ -74,6 +95,17 @@ def listar(
 def detalhar(categoria: Rota, chave: str, armazenamento: Armazenamento):
     """Retorna o JSON da triagem em resultado; se ilegível, retorna erro e resultado nulo."""
     return _consultar(armazenamento, categoria, chave)
+
+
+@router.delete("/{categoria}/{chave}", response_model=ResultadoExclusao)
+def excluir(categoria: Rota, chave: str, armazenamento: Armazenamento):
+    """Exclui original, triagem e registros associados da auditoria.
+
+    Em falha parcial, retorna 503 com os objetos removidos e pendentes em detail.
+    O resultado é excluído por último, permitindo repetir a operação.
+    """
+    _validar_chave(chave)
+    return _executar(armazenamento.excluir_documento, categoria, chave)
 
 
 @router.get("/{categoria}/{chave}/original", response_class=Response, responses={
