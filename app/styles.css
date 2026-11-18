@@ -31,6 +31,13 @@ footer { visibility: hidden; }
     min-height: 2.5rem; color: #b91c1c; border-color: #fecaca; background: #fff;
 }
 .st-key-excluir_documento button p { font-size: .85rem; }
+.st-key-consulta_documentos [data-testid="stForm"] { padding: .75rem; }
+.st-key-consulta_documentos textarea[aria-label="Dados extraídos (JSON)"] {
+    font-family: ui-monospace, monospace; font-size: .8rem; line-height: 1.4;
+}
+.st-key-consulta_documentos [data-testid="stFormSubmitButton"] button {
+    width: 100%; min-height: 2.75rem;
+}
 .st-key-previa_original_480 [data-testid="stImage"] img {
     max-height: 440px; object-fit: contain;
 }

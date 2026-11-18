@@ -217,6 +217,10 @@ class ArmazenamentoObjectStorage:
         return documentos
 
     def excluir_documento(self, categoria: str, chave: str) -> dict:
+        with self._lock_revisao:
+            return self._excluir_documento(categoria, chave)
+
+    def _excluir_documento(self, categoria: str, chave: str) -> dict:
         bucket, prefixo = self._destino_categoria(categoria)
         validar_chave(chave)
         resultado = f"{prefixo}{chave}{SUFIXO_TRIAGEM}"
@@ -226,12 +230,20 @@ class ArmazenamentoObjectStorage:
             if str(erro.response.get("Error", {}).get("Code")) in {"NoSuchKey", "404", "NotFound"}:
                 raise DocumentoNaoEncontrado(chave) from erro
             raise
-        objetos = [
-            {"bucket": self._bucket_auditoria(), "objeto": f"{PASTA_AUDITORIA}/{chave}{SUFIXO_DECISAO}"},
+        # Remove primeiro as triagens associadas, incluindo o histórico da IA.
+        # A decisão permanece enquanto esse histórico puder aparecer na fila.
+        objetos = []
+        for outra_categoria in DESTINOS:
+            outro_bucket, outro_prefixo = self._destino_categoria(outra_categoria)
+            outro_resultado = f"{outro_prefixo}{chave}{SUFIXO_TRIAGEM}"
+            if (outro_bucket, outro_resultado) != (bucket, resultado):
+                objetos.append({"bucket": outro_bucket, "objeto": outro_resultado})
+        objetos.extend([
             {"bucket": self._bucket_auditoria(), "objeto": f"{PASTA_AUDITORIA}/{chave}"},
             {"bucket": self.buckets["recebidos"], "objeto": chave},
+            {"bucket": self._bucket_auditoria(), "objeto": f"{PASTA_AUDITORIA}/{chave}{SUFIXO_DECISAO}"},
             {"bucket": bucket, "objeto": resultado},
-        ]
+        ])
         removidos = []
         # O resultado fica por último: uma falha mantém o documento localizável.
         for indice, objeto in enumerate(objetos):
@@ -444,6 +456,10 @@ class ArmazenamentoObjectStorage:
             return resultado
 
     def concluir_alerta_revisao(self, chave: str, enviado: bool) -> None:
+        with self._lock_revisao:
+            self._concluir_alerta_revisao(chave, enviado)
+
+    def _concluir_alerta_revisao(self, chave: str, enviado: bool) -> None:
         decisao = self.ler_decisao(chave)
         if not decisao or decisao.get("alerta_status") != "em_envio":
             raise ValueError("Não há tentativa de alerta reservada")

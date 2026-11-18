@@ -74,7 +74,7 @@ Abra [http://localhost:8501](http://localhost:8501) para enviar os documentos.
 
 1. Em **Documento**, carregue um dos arquivos de `data/sinteticos/` indicados na tabela.
 2. Escolha o **Canal de origem** correspondente e clique em **Enviar para triagem**.
-3. Confira o banner **Encaminhado para**, os dados extraídos e a confiança. Abra **Ver JSON de triagem** para visualizar a resposta completa.
+3. Confira o banner **Encaminhado para**, os dados extraídos e a confiança. Abra **Ver JSON em tela cheia** para visualizar a resposta completa.
 4. Clique em **Enviar outro documento** e repita com os demais arquivos.
 
 | Arquivo | Canal | Rota esperada | Departamento |
@@ -85,7 +85,19 @@ Abra [http://localhost:8501](http://localhost:8501) para enviar os documentos.
 
 A interface envia o arquivo à API, que preserva o original, chama o Gemini e executa **extrair → validar → decidir rota**. Os scores variam conforme a extração. O contrato HTTP tem sete campos, incluindo `classificacao` como rota e `destino_principal` como departamento. Para conectar o alerta urgente ao n8n, configure `ALERTA_WEBHOOK_URL` no `.env` e reinicie a API. `alerta_enviado=true` exige confirmação HTTP do webhook e gravação do resultado atualizado.
 
-Para testar um arquivo próprio, use PDF, PNG, JPG, JPEG ou JSON. Um arquivo JSON deve conter um objeto, como os exemplos sintéticos com `documento_texto`. Falhas técnicas recebem uma segunda tentativa e, se persistirem, retornam ambiguidade com confiança zero e prioridade alta na página **Auditoria**. O serviço tenta preservar os arquivos para revisão e registra as falhas de gravação. Falhas do webhook preservam a rota urgente, com `alerta_enviado=false`.
+Para testar um arquivo próprio, use PDF, PNG, JPG, JPEG ou JSON. Um arquivo JSON deve conter um objeto, como os exemplos sintéticos com `documento_texto`. Falhas técnicas recebem uma segunda tentativa e, se persistirem, retornam ambiguidade com confiança zero e prioridade alta em **Documentos → Ambiguidade**. O serviço tenta preservar os arquivos para revisão e registra as falhas de gravação. Falhas do webhook preservam a rota urgente, com `alerta_enviado=false`.
+
+## Consultar, revisar e excluir documentos
+
+O menu tem **Enviar documento** e **Documentos**. Em Documentos, clique em **URGÊNCIA**, **ROTINA** ou **AMBIGUIDADE**, busque pelo nome e selecione um arquivo. A prévia abre automaticamente; use **Ampliar** ou **Baixar original** quando necessário. As abas **Resumo** e **JSON** mostram a triagem. **Atualizar** recarrega a lista e **Novo documento** retorna ao envio.
+
+**Ambiguidade mostra somente os pendentes**, com falhas técnicas prioritárias no início. Na aba **Revisão**, escolha Rotina ou Urgência, informe o revisor e, opcionalmente, uma observação. Rotina exige um departamento; Urgência usa a fila médica configurada. Para corrigir a extração, marque **Editar dados extraídos (JSON)** e edite o objeto completo, preservando os campos que deseja manter. A API valida os campos clínicos com Pydantic.
+
+Clique em **Confirmar encaminhamento**. Após a gravação, o arquivo sai da lista de Ambiguidade e aparece no destino. O resumo apresenta revisor, observação e data separados da justificativa da IA. O score original é preservado, e a triagem original e a decisão permanecem no bucket de auditoria como histórico interno. Não há filtros de revisados na interface. O endereço antigo `/Auditoria` redireciona para Ambiguidade.
+
+Se uma gravação falhar, a revisão fica pendente e a tela oferece **Retomar encaminhamento**, mantendo a mesma decisão e as correções bloqueadas para edição. Em Urgência, o webhook é tentado após a persistência; sua falha não desfaz o encaminhamento. A tentativa é registrada para evitar reenvios normais. Se houver interrupção ou falha ao registrar o alerta, a tela informa que o envio não foi confirmado; confira os logs. O controle de concorrência é local ao processo e não há transação entre buckets.
+
+**Excluir documento** exige **Confirmar exclusão**; **Cancelar exclusão** não apaga arquivos. A operação remove original, cópia de ambiguidade, resultados nas três categorias, histórico e decisão da mesma chave. O resultado selecionado é removido por último. Em falha parcial, a tela informa objetos removidos e pendentes; repita a exclusão para concluir. Arquivos associados já ausentes são aceitos, e outras chaves permanecem intactas.
 
 ## 4. Conferir os buckets
 
@@ -97,7 +109,7 @@ No terminal da API, procure `Documento recebido` para relacionar `documento_id` 
 | `mediflow-processados` | `rotina/<chave>.triagem.json` ou `urgencia/<chave>.triagem.json` |
 | `mediflow-auditoria-humana` | `ambiguidade/<chave>` e `ambiguidade/<chave>.triagem.json` |
 
-A chave já inclui a extensão original. No console OCI, abra o resultado e compare o JSON com **Ver JSON de triagem**. Baixe o original de `mediflow-recebidos` e compare os hashes dos dois arquivos, substituindo o caminho de download abaixo.
+A chave já inclui a extensão original. No console OCI, abra o resultado e compare o JSON com a aba **JSON** de Documentos. Baixe o original de `mediflow-recebidos` e compare os hashes dos dois arquivos, substituindo o caminho de download abaixo.
 
 Novos uploads usam `<uuid>_<nome-do-arquivo>`, por exemplo `<uuid>_doc_teste_001_rotina.json`. O resultado correspondente recebe o sufixo `.triagem.json`. Espaços, acentos e caracteres especiais do nome são normalizados, e caminhos enviados pelo cliente são removidos.
 
@@ -116,6 +128,30 @@ curl -i http://127.0.0.1:8000/triagem \
   -F 'arquivo=@data/sinteticos/doc_teste_001_rotina.json;type=application/json' \
   -F 'canal_origem=Ambulatorio'
 ```
+
+Para consultar e revisar pelo Postman, use as chamadas abaixo, substituindo `<chave>` pela chave retornada na listagem (não apenas pelo nome do arquivo).
+
+| Método e caminho | Uso |
+| --- | --- |
+| `GET /documentos?categoria=ambiguidade&situacao_revisao=pendentes` | Pendentes em ordem de prioridade |
+| `GET /documentos/rotina/<chave>?incluir_revisao=true` | Resultado e histórico da revisão no destino |
+| `GET /documentos/rotina/<chave>/original` | Download do original |
+| `GET /auditoria/opcoes` | Departamentos configurados |
+| `POST /auditoria/<chave>/encaminhamento` | Registrar e executar o encaminhamento |
+| `DELETE /documentos/rotina/<chave>` | Excluir todos os arquivos associados à chave |
+
+No encaminhamento, use **Body → raw → JSON** com o corpo abaixo. O formato multipart continua sendo usado no upload de `POST /triagem`.
+
+```json
+{
+  "destino": "rotina",
+  "departamento": "Prontuario_Eletronico",
+  "revisor": "Revisor de demonstracao",
+  "observacao": "Original conferido."
+}
+```
+
+Para Urgência, use `"destino": "urgencia"` e omita o departamento. Para corrigir dados clínicos, acrescente `dados_corrigidos` com o objeto completo no formato de `dados_extraidos`; ele substitui esses dados no resultado encaminhado. ID, score e status do alerta não são editáveis por esse campo. Entrada inválida retorna 422, documento inexistente 404, decisão diferente já registrada 409 e falha de persistência 503. Repita a mesma decisão para retomar um encaminhamento incompleto.
 
 ## 6. Verificação ao vivo em 12/11/2026
 

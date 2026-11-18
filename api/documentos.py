@@ -164,7 +164,7 @@ def detalhar(
 
 @router.delete("/{categoria}/{chave}", response_model=ResultadoExclusao)
 def excluir(categoria: Rota, chave: str, armazenamento: Armazenamento):
-    """Exclui original, triagem e registros associados da auditoria.
+    """Exclui original, triagens nas três categorias e histórico da revisão.
 
     Em falha parcial, retorna 503 com os objetos removidos e pendentes em detail.
     O resultado é excluído por último, permitindo repetir a operação.

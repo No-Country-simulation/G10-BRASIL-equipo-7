@@ -475,7 +475,7 @@ def render_acoes_documento(categoria, chave, caminho, detalhe):
     if st.button("Excluir documento", icon=":material/delete:", key="excluir_documento"):
         st.session_state["exclusao_documento"] = (categoria, chave)
     if st.session_state.get("exclusao_documento") == (categoria, chave):
-        st.warning("Confirme a exclusão permanente do original, da triagem e dos registros associados da auditoria.")
+        st.warning("Confirme a exclusão permanente do original, das triagens e do histórico de revisão deste documento em todos os buckets.")
         st.caption(f"Arquivo: {detalhe.get('nome') or 'Documento sem nome'}")
         if st.button("Confirmar exclusão", type="primary"):
             try:
@@ -484,6 +484,8 @@ def render_acoes_documento(categoria, chave, caminho, detalhe):
                 mostrar_erro_documentos(erro)
             else:
                 limpar_documento_aberto()
+                st.session_state.pop("contagens_documentos", None)
+                st.session_state.pop("encaminhamento_concluido", None)
                 st.session_state.pop(f"selecionado_{categoria}", None)
                 st.session_state["limpar_busca_documentos"] = categoria
                 st.session_state["aviso_documentos"] = "Documento excluído dos buckets."
