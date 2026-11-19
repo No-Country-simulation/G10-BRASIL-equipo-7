@@ -56,11 +56,48 @@ class Armazenamento(Protocol):
 
 
 class DocumentoNaoEncontrado(LookupError):
-    """Não há resultado de triagem para a chave na auditoria humana."""
+    """O documento solicitado não existe no armazenamento."""
+
+
+class FalhaExclusaoDocumento(Exception):
+    """Mantém os objetos confirmados e pendentes após uma exclusão interrompida."""
+
+    def __init__(self, removidos: list[dict], pendentes: list[dict]):
+        super().__init__("Não foi possível concluir a exclusão do documento.")
+        self.removidos = removidos
+        self.pendentes = pendentes
+
+
+class ArmazenamentoConsulta(Protocol):
+    """Consulta e exclusão dos documentos, separados por categoria."""
+
+    def listar_documentos(self, categoria: str) -> list[dict]: ...
+
+    def consultar_documento(self, categoria: str, chave: str) -> dict: ...
+
+    def ler_original(self, categoria: str, chave: str) -> bytes:
+        """Levanta DocumentoNaoEncontrado quando não há original nem cópia."""
+        ...
+
+    def excluir_documento(self, categoria: str, chave: str) -> dict: ...
+
+    def ler_decisao(self, chave: str) -> dict | None: ...
+
+    def ler_resultado(self, chave: str) -> dict: ...
+
+    def ler_metadados_revisao(self, chave: str) -> dict[str, str]: ...
 
 
 class DecisaoJaRegistrada(Exception):
     """O documento já tem decisão; a decisão original nunca é sobrescrita."""
+
+
+class FalhaEncaminhamentoDocumento(Exception):
+    """Encaminhamento incompleto, que pode ser retomado com a mesma decisão."""
+
+    def __init__(self, etapa: str):
+        super().__init__("Não foi possível concluir o encaminhamento do documento.")
+        self.etapa = etapa
 
 
 def serializar_decisao(decisao: dict) -> bytes:
@@ -73,7 +110,7 @@ class ArmazenamentoAuditoria(Protocol):
     """Operações de leitura e decisão usadas pelo painel de auditoria humana."""
 
     def listar_ambiguidades(self) -> dict[str, bool]:
-        """Chave de cada documento com triagem em ambiguidade -> já tem decisão."""
+        """Chave -> revisão concluída; encaminhamentos pendentes continuam na fila."""
         ...
 
     def ler_resultado(self, chave: str) -> dict:
@@ -89,3 +126,14 @@ class ArmazenamentoAuditoria(Protocol):
     def salvar_decisao(self, chave: str, decisao: dict) -> None:
         """Levanta DecisaoJaRegistrada se já houver decisão para a chave."""
         ...
+
+    def encaminhar_documento(
+        self, chave: str, destino: str, departamento: str, revisor: str,
+        observacao: str = "", dados_corrigidos: dict | None = None,
+    ) -> dict:
+        """Preserva o histórico e confirma a revisão após persistir o encaminhamento."""
+        ...
+
+    def iniciar_alerta_revisao(self, chave: str) -> dict | None: ...
+
+    def concluir_alerta_revisao(self, chave: str, enviado: bool) -> None: ...

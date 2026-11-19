@@ -1,4 +1,4 @@
-streamlit
+streamlit[pdf]
 fastapi
 anyio>=4.1
 uvicorn[standard]

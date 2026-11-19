@@ -58,15 +58,15 @@ def test_upload_multipart_e_resultado_das_tres_rotas(tela, resultado, rota, dest
         data={"canal_origem": "Pronto-Socorro"}, timeout=75,
     )
     assert f"Encaminhado para `{destino}`" in app.get(banner)[0].value
-    assert app.metric[0].value == "0.90"
+    assert app.metric[0].value == "90%"
     assert json.loads(app.json[0].value) == resultado
     texto = "\n".join(item.value for item in app.markdown)
     assert "Maria" in texto and "Losartana" in texto and "não informado" in texto
     assert resultado["justificativa"] in texto
 
-    app.button[0].click().run()
+    next(b for b in app.button if b.label == "Enviar outro documento").click().run()
     assert not app.exception
-    assert app.session_state.get("resultado") is None
+    assert app.session_state.get("resultado") == resultado
     assert len(app.file_uploader) == 1
 
 

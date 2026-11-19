@@ -20,3 +20,9 @@ venv/
 docs/
 tests/
 data/
+**/node_modules/
+**/dist/
+**/coverage/
+**/.vite/
+**/*.tsbuildinfo
+npm-debug.log*
