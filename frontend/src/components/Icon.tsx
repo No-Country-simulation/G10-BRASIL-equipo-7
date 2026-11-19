@@ -3,6 +3,7 @@ const paths = {
   chat: 'M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z',
   folder: 'M3 7V4h7l2 3h9v13H3Z',
   file: 'M14 2H5v20h14V7Zm0 0v5h5M8 12h8m-8 4h8',
+  image: 'M3 3h18v18H3Zm0 13 5-5 4 4 3-3 6 6M8 7h.01',
   search: 'm21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
   plus: 'M12 4v16M4 12h16',
   refresh: 'M20 7V2m0 5h-5m5 0a9 9 0 1 0 1 9',

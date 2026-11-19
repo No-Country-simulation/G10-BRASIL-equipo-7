@@ -2,7 +2,7 @@ import { Button } from './ui'
 
 export default function RevisaoForm() {
   return <form onSubmit={(event) => event.preventDefault()}>
-    <p className="muted small">Selecione um documento em Ambiguidade para revisar.</p>
+    <p className="muted small">O encaminhamento pelo React será conectado na próxima etapa. Por enquanto, use a revisão no Streamlit.</p>
     <fieldset disabled className="review-fields">
       <legend className="sr-only">Dados da revisão humana</legend>
       <label className="field">Nome do paciente<input placeholder="Não informado" /></label>

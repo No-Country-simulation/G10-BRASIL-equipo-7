@@ -1,6 +1,6 @@
 import type { RespostaChat } from '../api/contratos'
-import { rotulos } from '../api/contratos'
-import { Button } from './ui'
+import { caminhoDocumento, rotulos } from '../api/contratos'
+import { Link } from 'react-router'
 import Icon from './Icon'
 
 export default function FontesChat({ resposta }: { resposta: RespostaChat }) {
@@ -14,7 +14,7 @@ export default function FontesChat({ resposta }: { resposta: RespostaChat }) {
     {resposta.fontes.map((fonte, indice) => <div className="source-card" key={indice}>
       {fonte.trecho && <blockquote>{fonte.trecho}</blockquote>}
       <div className="file-summary"><Icon name="file" /><span>{fonte.nome}<small className="muted">{fonte.origem === 'base' ? rotulos[fonte.referencia.categoria] : 'Anexo temporário · não armazenado'}</small></span>
-        {fonte.origem === 'base' && <Button disabled title="A abertura na consulta será conectada na próxima etapa.">Abrir documento</Button>}
+        {fonte.origem === 'base' && <Link className="button" to={caminhoDocumento(fonte.referencia)}>Abrir documento</Link>}
       </div>
     </div>)}
     {!resposta.cobertura.completa && <p className="muted small">Consulta parcial · {resposta.cobertura.motivo_limite}</p>}

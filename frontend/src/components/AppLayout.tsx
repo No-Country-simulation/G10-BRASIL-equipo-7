@@ -1,9 +1,8 @@
-import { NavLink, Outlet, useLocation } from 'react-router'
+import { NavLink, Outlet } from 'react-router'
 import logo from '../assets/mediflow-icone.png'
 import Icon from './Icon'
 
 export default function AppLayout() {
-  const documentos = useLocation().pathname === '/documentos'
   return <div className="app-shell">
     <a className="skip-link" href="#conteudo">Ir para o conteúdo</a>
     <aside className="sidebar">
@@ -17,7 +16,6 @@ export default function AppLayout() {
       <p className="sidebar-footer">Demonstração · Dados fictícios</p>
     </aside>
     <main id="conteudo" className="workspace" tabIndex={-1}>
-      {documentos && <p className="preview-notice">Prévia visual · Consulta e revisão serão conectadas nas próximas etapas.</p>}
       <Outlet />
     </main>
   </div>

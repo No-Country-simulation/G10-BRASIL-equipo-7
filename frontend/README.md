@@ -1,15 +1,14 @@
-# Frontend React — etapa 3
+# Frontend React — etapa 4
 
 Estrutura inicial com React 19, TypeScript estrito, Vite 8, Tailwind CSS 4 e React Router.
 O layout tem navegação lateral, nova triagem e assistente em painéis separados,
 e consulta com três áreas: arquivos, original e resultado/revisão.
 O envio de triagem e o assistente já usam `POST /triagem` e `POST /chat` pelo proxy `/api`.
-Inicie a API para usar esses fluxos. O resultado da última triagem pode ser expandido em
-**Ver resultado**; **Conversar sobre este documento** prepara uma mensagem, sem enviá-la,
+Inicie a API para usar esses fluxos. **Ver resultado** abre a última triagem em Documentos;
+**Conversar sobre este documento** prepara uma mensagem, sem enviá-la,
 usando a chave recebida no cabeçalho `X-Documento-Chave`.
-As categorias e abas de Documentos continuam como prévia visual; consulta, abertura das
-fontes, exclusão e encaminhamento serão integrados nas próximas etapas.
-O Streamlit existente permanece disponível com esses fluxos completos.
+A consulta, a abertura das fontes e a exclusão também usam a API. O formulário de revisão
+continua desabilitado até a próxima etapa; para encaminhar documentos, use o Streamlit existente.
 
 ## Triagem e chat
 
@@ -25,12 +24,35 @@ O Streamlit existente permanece disponível com esses fluxos completos.
   arquivos e resultados ficam apenas na memória da interface; recarregar a página os libera.
 - Enter envia a mensagem; Shift+Enter insere uma linha. Falhas do chat permitem tentar
   novamente sem duplicar a mensagem. O upload de triagem não tem repetição automática.
-- O cliente aguarda até 75 segundos. Em timeout da triagem, confira Documentos pelo
-  Streamlit antes de reenviar: o backend pode continuar processando o primeiro envio.
+- O cliente aguarda até 75 segundos. Em timeout da triagem, confira **Documentos** antes
+  de reenviar: o backend pode continuar processando o primeiro envio.
 
 Os limites do anexo e do histórico são lidos de `config/chat.json` ao iniciar/construir
 o frontend. Reinicie o Vite (ou reconstrua o build) após alterá-los. A API valida seus
 próprios limites em cada requisição e continua sendo a autoridade final.
+
+## Consultar documentos
+
+- Abra **Documentos** e escolha Urgência, Rotina ou Ambiguidade. A consulta vem dos
+  buckets pelo backend; Ambiguidade mostra somente pendentes, na ordem de revisão da API.
+- Busque pelo nome e selecione um arquivo. Nomes repetidos recebem numeração na tela;
+  a chave interna continua identificando o documento correto. O menu retoma a última categoria.
+- A prévia abre automaticamente: PDF com navegação por páginas, imagens ajustadas à área
+  e JSON com rolagem. Use **Ampliar** ou **Baixar original**. PDF é renderizado localmente
+  com PDF.js, carregado apenas quando necessário, sem enviar o arquivo a outro serviço.
+- **Resumo** apresenta os dados e o alerta realmente confirmado; **JSON** mostra a triagem
+  completa. Originais ausentes ou resultados antigos/inválidos não escondem os demais arquivos.
+- **Atualizar** consulta novamente a lista e o original selecionado. Os bytes da prévia
+  ficam somente na memória enquanto aquele documento está aberto.
+- **Excluir documento** exige confirmação e remove os arquivos associados pela API,
+  incluindo o histórico. Uma exclusão parcial informa os objetos pendentes e permite nova
+  tentativa manual. A operação é permanente; confira o nome antes de confirmar.
+- As fontes do chat e **Ver resultado** abrem a categoria e a chave exatas. Se o documento
+  tiver sido movido ou excluído, a tela avisa sem abrir outro arquivo em seu lugar.
+
+Leituras e exclusões aguardam até 30 segundos. Em falha de conexão durante a exclusão,
+atualize a lista para conferir o estado antes de repetir. Credenciais e chamadas à OCI
+continuam exclusivamente no backend.
 
 ## Executar
 
@@ -74,5 +96,6 @@ npm run preview
 
 O build verifica os tipos e gera `dist/`. O preview serve esse build localmente,
 normalmente em <http://localhost:4173>.
-Vitest, Testing Library e jsdom estão configurados, mas **não há casos de teste nesta etapa**.
-O comando de testes aceita essa ausência explicitamente; sua saída não representa testes aprovados.
+Vitest, Testing Library e jsdom estão configurados, mas **não há arquivos de teste permanentes**.
+O comando aceita essa ausência explicitamente; sua saída não representa testes aprovados.
+As verificações temporárias de implementação não são incluídas no repositório.

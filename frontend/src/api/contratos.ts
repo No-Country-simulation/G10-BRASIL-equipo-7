@@ -40,3 +40,22 @@ export type PedidoChat = { mensagem: string; historico: Mensagem[]; contexto: Co
 export type UltimaTriagem = { nome: string; resultado: ResultadoTriagem; chave: string | null }
 export type MensagemExibida = Mensagem & { anexo?: string; resposta?: RespostaChat }
 export const rotulos = { urgencia: 'Urgência', rotina: 'Rotina', ambiguidade: 'Ambiguidade', recebidos: 'Recebidos (sem triagem confirmada)' }
+
+export const itemDocumentoSchema = z.object({
+  chave: chaveSchema, nome: z.string(), documento_id: z.string().nullable(), categoria: rotaSchema,
+  original_disponivel: z.boolean(), erro: z.string().nullable(),
+  situacao_revisao: z.enum(['pendente', 'revisado']).nullable().optional(),
+  prioridade_revisao: z.enum(['alta', 'normal']).nullable().optional(), recebido_em: z.string().nullable().optional(),
+})
+export const detalheDocumentoSchema = itemDocumentoSchema.extend({
+  resultado: z.record(z.string(), z.unknown()).nullable(), decisao: z.record(z.string(), z.unknown()).nullable().optional(),
+  justificativa_original: z.string().nullable().optional(),
+})
+export const objetosExclusaoSchema = z.object({
+  removidos: z.array(z.object({ bucket: z.string(), objeto: z.string() })),
+  pendentes: z.array(z.object({ bucket: z.string(), objeto: z.string() })),
+})
+export type ItemDocumento = z.infer<typeof itemDocumentoSchema>
+export type DetalheDocumento = z.infer<typeof detalheDocumentoSchema>
+export type ObjetosExclusao = z.infer<typeof objetosExclusaoSchema>
+export const caminhoDocumento = (referencia: Referencia) => `/documentos?${new URLSearchParams({ categoria: referencia.categoria, chave: referencia.chave })}`

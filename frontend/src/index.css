@@ -157,3 +157,32 @@ details .review-fields { margin-top: 14px; }
   .files-panel { min-height: auto; }
   .result-panel { grid-column: auto; }
 }
+
+.files-panel > p { margin-bottom: 14px; }
+.file-list { max-height: 480px; overflow-y: auto; margin-top: 16px; }
+.file-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 10px; text-align: left; border: 0; border-bottom: 1px solid #353535; border-left: 3px solid transparent; border-radius: 5px; }
+.file-row[aria-pressed='true'] { background: #094771; border-left-color: #75beff; }
+.file-row span { min-width: 0; overflow-wrap: anywhere; }
+.file-row strong { font-size: .85rem; font-weight: 500; display: block; }
+.file-row small { font-size: .72rem; color: var(--color-muted); display: block; }
+.file-row .priority-label { color: #ecca7a; }
+.file-row .file-warning { color: #f48771; }
+.preview-loaded { height: 480px; min-height: 0; overflow: auto; padding: 12px; }
+.original-image { width: 100%; height: 100%; object-fit: contain; }
+.pdf-document { width: 100%; align-self: stretch; text-align: center; }
+.pdf-document canvas { max-width: 100%; display: block; margin: auto; }
+.pdf-toolbar { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .75rem; background: var(--color-panel); padding: 8px 0; margin-bottom: 8px; }
+.pdf-toolbar .button { min-height: 30px; font-size: .75rem; padding: 4px 8px; }
+.preview-loaded:has(.pdf-document), .preview-expanded:has(.pdf-document) { justify-content: flex-start; }
+.original-json { width: 100%; text-align: left; font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.result-json { max-height: 650px; overflow: auto; font-size: .78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.preview-dialog { width: min(1200px, 95vw); max-width: 95vw; max-height: 94dvh; background: var(--color-panel); color: var(--color-text); border: 1px solid var(--color-border); border-radius: 10px; padding: 20px; margin: auto; }
+.preview-dialog::backdrop { background: #000a; }
+.preview-expanded { height: 75dvh; min-height: 0; overflow: auto; }
+.delete-area { border-top: 1px solid var(--color-border); padding-top: 12px; }
+.delete-confirmation { font-size: .85rem; display: grid; gap: 12px; overflow-wrap: anywhere; }
+.delete-confirmation input { accent-color: #f48771; }
+.delete-confirmation details { margin-top: 12px; }
+.delete-confirmation ul { list-style: disc; padding-left: 18px; }
+.success-message { color: #b3e6b0; background: #21432e; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
+.review-history { display: grid; gap: 10px; border-block: 1px solid var(--color-border); padding: 12px 0; }

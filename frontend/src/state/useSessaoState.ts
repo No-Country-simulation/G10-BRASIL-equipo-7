@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { conversar, triar, validarArquivo } from '../api/cliente'
-import type { ContextoChat, Mensagem, MensagemExibida, PedidoChat, UltimaTriagem } from '../api/contratos'
+import type { ContextoChat, Mensagem, MensagemExibida, PedidoChat, Rota, UltimaTriagem } from '../api/contratos'
 
 const mensagemErro = (erro: unknown) => erro instanceof Error ? erro.message : 'Não foi possível concluir a operação.'
 
@@ -17,6 +17,7 @@ export function useSessaoState() {
   const [erroChat, setErroChat] = useState('')
   const [pendente, setPendente] = useState<PedidoChat | null>(null)
   const travaChat = useRef(false)
+  const [categoriaDocumentos, setCategoriaDocumentos] = useState<Rota>('ambiguidade')
 
   async function enviarTriagem(arquivo: File, canal: string) {
     if (travaTriagem.current) return false
@@ -65,5 +66,5 @@ export function useSessaoState() {
   }
 
   return { ultima, triando, erroTriagem, enviarTriagem, mensagens, contexto, trocarContexto,
-    rascunho, setRascunho, consultando, erroChat, pendente, enviarMensagem, novaConversa }
+    rascunho, setRascunho, consultando, erroChat, pendente, enviarMensagem, novaConversa, categoriaDocumentos, setCategoriaDocumentos }
 }
