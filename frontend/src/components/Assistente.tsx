@@ -13,11 +13,24 @@ export default function Assistente() {
   const fim = useRef<HTMLDivElement>(null)
   const entrada = useRef<HTMLTextAreaElement>(null)
   const { mensagens, contexto, consultando, rascunho } = sessao
+  const anexo = contexto?.tipo === 'anexo' ? contexto.arquivo : null
+  const nomeContexto = anexo?.name ?? (contexto?.tipo === 'documento' ? contexto.nome : '')
+  const extensao = nomeContexto.split('.').pop()?.toUpperCase()
+  const divisor = anexo && anexo.size >= 1024 ** 2 ? 1024 ** 2 : anexo && anexo.size >= 1024 ? 1024 : 1
+  const tamanho = anexo ? `${(anexo.size / divisor).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ${divisor === 1 ? 'B' : divisor === 1024 ? 'KB' : 'MB'}` : ''
   useEffect(() => { fim.current?.scrollIntoView({ block: 'nearest' }) }, [mensagens, consultando])
   useEffect(() => { if (contexto?.tipo === 'documento') entrada.current?.focus() }, [contexto])
   return <Panel title="Assistente MediFlow" className="assistant-panel" action={<Button disabled={consultando} onClick={() => { sessao.novaConversa(); setErroArquivo('') }}><Icon name="plus" />Nova conversa</Button>}>
     <p className="muted assistant-description">Pergunte sobre documentos e casos já triados.</p>
-    {contexto && <div className="chat-context"><span>{contexto.tipo === 'anexo' ? `Anexo temporário: ${contexto.arquivo.name}` : `Documento em contexto: ${contexto.nome}`}</span><Button disabled={consultando} variant="ghost" onClick={() => { sessao.trocarContexto(null); setErroArquivo('') }}>Remover contexto</Button></div>}
+    {contexto && <section className="chat-context" aria-label="Contexto da conversa">
+      <div className="chat-context-icon"><Icon name={['PNG', 'JPG', 'JPEG'].includes(extensao ?? '') ? 'image' : 'file'} size={24} /></div>
+      <div className="chat-context-details" role="status" aria-live="polite" aria-atomic="true">
+        <span className="chat-context-label"><Icon name="check" size={15} />{anexo ? 'Anexo adicionado' : 'Documento selecionado'}</span>
+        <strong>{nomeContexto}</strong>
+        <p>{anexo ? `${extensao} · ${tamanho} · Temporário, não salvo na base` : 'Referência do documento para esta conversa'}</p>
+      </div>
+      <Button disabled={consultando} variant="ghost" onClick={() => { sessao.trocarContexto(null); setErroArquivo('') }}>Remover contexto</Button>
+    </section>}
     <div className="conversation" role="log" aria-label="Conversa com o assistente" aria-live="polite">
       {!mensagens.length && <div className="assistant-welcome"><img src={logo} alt="" width="36" height="36" /><div><strong>Como posso ajudar?</strong><p>Consulte documentos e evidências das triagens.</p><p className="muted small">Experimente: “Quais casos estão em urgência?” ou “Encontre o arquivo laudo.pdf”.</p></div></div>}
       {mensagens.map((item, indice) => <div key={indice} className={`chat-message message-${item.papel}`}>

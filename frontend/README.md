@@ -1,4 +1,4 @@
-# Frontend React — etapa 5
+# Frontend React
 
 Estrutura inicial com React 19, TypeScript estrito, Vite 8, Tailwind CSS 4 e React Router.
 O layout tem navegação lateral, nova triagem e assistente em painéis separados,
@@ -105,7 +105,27 @@ python -m uvicorn api.main:app --reload
 Para alterar o destino, copie `frontend/.env.example` para `frontend/.env`,
 ajuste `API_PROXY_TARGET` e reinicie o Vite. Essa variável é exclusiva do servidor;
 não use o prefixo `VITE_` para credenciais. Nenhuma chave Gemini ou OCI pertence ao frontend.
-O proxy funciona apenas em desenvolvimento; a configuração de produção/Docker será feita depois.
+Esse proxy é exclusivo do desenvolvimento. No Docker, o Nginx serve o build e encaminha
+`/api/*` ao serviço `api:8000`, também removendo o prefixo. O navegador usa a mesma origem,
+sem precisar de CORS nem de endereço interno do Docker no JavaScript.
+
+## Executar com Docker
+
+Na raiz do projeto, configure o `.env` da API e execute:
+
+```bash
+docker compose up --build
+```
+
+Abra <http://localhost:8080>. A API continua em <http://localhost:8000/docs>.
+Somente a API recebe o `.env`; a imagem do frontend contém os arquivos estáticos e o
+Nginx executado sem privilégios. Node.js é usado apenas durante a construção da imagem.
+As rotas `/nova-triagem` e `/documentos` podem ser abertas diretamente ou recarregadas.
+
+Após o primeiro build, use `docker compose up -d`. Alterações no frontend ou em
+`config/chat.json` exigem `docker compose up --build -d interface`. Para acompanhar os
+serviços, use `docker compose logs -f api interface`; para parar, `docker compose down`.
+O [guia rápido](../docs/guia-rapido.md) inclui execução sem Docker e Streamlit opcional.
 
 ## Verificações
 
@@ -119,7 +139,8 @@ npm run preview
 ```
 
 O build verifica os tipos e gera `dist/`. O preview serve esse build localmente,
-normalmente em <http://localhost:4173>.
+normalmente em <http://localhost:4173>, sem encaminhar chamadas à API. Para testar os
+fluxos integrados, use `npm run dev` com FastAPI ou o Compose com Nginx.
 Vitest, Testing Library e jsdom estão configurados, mas **não há arquivos de teste permanentes**.
 O comando aceita essa ausência explicitamente; sua saída não representa testes aprovados.
 As verificações temporárias de implementação não são incluídas no repositório.

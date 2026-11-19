@@ -19,7 +19,7 @@ export default function ExcluirDocumento({ referencia, nome, onSuccess }: { refe
     catch (falha) { if (vivo.current) setErro(falha instanceof Error ? falha : Error('Não foi possível confirmar a exclusão. Atualize a lista antes de tentar novamente.')) }
     finally { trava.current = false; if (vivo.current) setExcluindo(false) }
   }
-  return <div className="delete-area">
+  return <>
     {!confirmando ? <Button variant="danger" onClick={() => setConfirmando(true)}><Icon name="trash" />Excluir documento</Button> : <section className="delete-confirmation" aria-label="Confirmar exclusão do documento">
       <strong>Excluir {nome}?</strong>
       <p>Serão apagados permanentemente o original, as triagens e o histórico de revisão associados, em todas as categorias.</p>
@@ -30,5 +30,5 @@ export default function ExcluirDocumento({ referencia, nome, onSuccess }: { refe
       </details>}</div>}
       <div className="actions"><Button variant="danger" disabled={!aceito || excluindo} onClick={() => void confirmar()}>{excluindo ? 'Excluindo…' : 'Confirmar exclusão'}</Button><Button disabled={excluindo} onClick={() => { setConfirmando(false); setAceito(false); setErro(null) }}>Cancelar exclusão</Button></div>
     </section>}
-  </div>
+  </>
 }

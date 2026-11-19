@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { DetalheDocumento } from '../api/contratos'
 import { obterOriginal } from '../api/documentos'
 import useConsulta from '../state/useConsulta'
@@ -7,7 +8,7 @@ import { Button, EmptyState } from './ui'
 
 const tipos: Record<string, string> = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', json: 'application/json' }
 const PdfDocumento = lazy(() => import('./PdfDocumento'))
-export default function OriginalDocumento({ documento }: { documento: DetalheDocumento }) {
+export default function OriginalDocumento({ documento, acoes }: { documento: DetalheDocumento; acoes?: ReactNode }) {
   const [tentativa, setTentativa] = useState(0)
   const [ampliado, setAmpliado] = useState(false)
   const [erroImagem, setErroImagem] = useState<Blob | null>(null)
@@ -47,7 +48,8 @@ export default function OriginalDocumento({ documento }: { documento: DetalheDoc
   return <>
     <div className="original-preview preview-loaded">{previa()}</div>
     <div className="actions preview-actions"><Button disabled={!atual} onClick={() => setAmpliado(true)}><Icon name="expand" />Ampliar</Button>
-      {atual ? <a className="button" href={atual.url} download={documento.nome || documento.chave}><Icon name="download" />Baixar original</a> : <Button disabled><Icon name="download" />Baixar original</Button>}
+      {atual ? <a className="button" aria-label="Baixar original" href={atual.url} download={documento.nome || documento.chave}><Icon name="download" />Baixar</a> : <Button disabled aria-label="Baixar original"><Icon name="download" />Baixar</Button>}
+      {acoes}
     </div>
     <dialog ref={dialogo} className="preview-dialog" aria-labelledby="titulo-original-ampliado" onClose={() => setAmpliado(false)}>
       <div className="panel-heading"><h2 id="titulo-original-ampliado">{documento.nome || documento.chave}</h2><Button onClick={() => dialogo.current?.close()}>Fechar ampliação</Button></div>

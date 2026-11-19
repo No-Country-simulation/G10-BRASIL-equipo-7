@@ -83,9 +83,9 @@ export default function DocumentosPage() {
         })}</div>
       </Panel>
       <Panel title="Documento original" className="original-panel">
-        {documento ? <><OriginalDocumento key={`${categoria}/${chave}/${versao}`} documento={documento} /><ExcluirDocumento key={`${categoria}/${chave}`} referencia={{ categoria, chave: documento.chave }} nome={documento.nome || documento.chave} onSuccess={() => {
+        {documento ? <OriginalDocumento key={`${categoria}/${chave}/${versao}`} documento={documento} acoes={<ExcluirDocumento key={`${categoria}/${chave}`} referencia={{ categoria, chave: documento.chave }} nome={documento.nome || documento.chave} onSuccess={() => {
           setAviso('Documento e arquivos associados excluídos.'); setEscolhida(null); setBusca(''); setParametros({ categoria }, { replace: true }); setVersao((valor) => valor + 1)
-        }} /></> : <EmptyState title={detalhe.carregando ? 'Carregando documento…' : 'Selecione um documento'}>{detalhe.erro || 'A prévia do PDF, imagem ou JSON aparecerá aqui.'}</EmptyState>}
+        }} />} /> : <EmptyState title={detalhe.carregando ? 'Carregando documento…' : 'Selecione um documento'}>{detalhe.erro || 'A prévia do PDF, imagem ou JSON aparecerá aqui.'}</EmptyState>}
       </Panel>
       <Panel title="Resultado da triagem" className="result-panel">
         <div className="result-tabs" role="group" aria-label="Visualização do resultado">{abas.map((item) => <button key={item} aria-pressed={aba === item} onClick={() => setAba(item)}>{item === 'resumo' ? 'Resumo' : item === 'json' ? 'JSON' : 'Revisão'}</button>)}</div>
