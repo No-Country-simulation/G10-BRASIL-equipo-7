@@ -1,7 +1,12 @@
-# Frontend React — etapa 1
+# Frontend React — etapa 2
 
 Estrutura inicial com React 19, TypeScript estrito, Vite 8, Tailwind CSS 4 e React Router.
-As páginas são provisórias: upload, chat e revisão ainda funcionam na interface Streamlit existente.
+O layout tem navegação lateral, nova triagem e assistente em painéis separados,
+e consulta com três áreas: arquivos, original e resultado/revisão.
+As categorias e abas já podem ser exploradas, inclusive o formulário de revisão em Ambiguidade.
+Os botões de envio, anexos, consulta e gravação permanecem desabilitados nesta prévia visual:
+não há chamadas à API, documentos carregados ou contagens simuladas.
+Upload, chat e revisão reais ainda funcionam na interface Streamlit existente.
 
 ## Executar
 
