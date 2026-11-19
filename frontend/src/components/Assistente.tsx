@@ -1,0 +1,42 @@
+import { useEffect, useRef, useState } from 'react'
+import Markdown from 'react-markdown'
+import logo from '../assets/mediflow-icone.png'
+import { useSessao } from '../state/sessao'
+import FontesChat from './FontesChat'
+import Icon from './Icon'
+import SelecionarArquivo from './SelecionarArquivo'
+import { Button, Panel } from './ui'
+
+export default function Assistente() {
+  const sessao = useSessao()
+  const [erroArquivo, setErroArquivo] = useState('')
+  const fim = useRef<HTMLDivElement>(null)
+  const entrada = useRef<HTMLTextAreaElement>(null)
+  const { mensagens, contexto, consultando, rascunho } = sessao
+  useEffect(() => { fim.current?.scrollIntoView({ block: 'nearest' }) }, [mensagens, consultando])
+  useEffect(() => { if (contexto?.tipo === 'documento') entrada.current?.focus() }, [contexto])
+  return <Panel title="Assistente MediFlow" className="assistant-panel" action={<Button disabled={consultando} onClick={() => { sessao.novaConversa(); setErroArquivo('') }}><Icon name="plus" />Nova conversa</Button>}>
+    <p className="muted assistant-description">Pergunte sobre documentos e casos já triados.</p>
+    {contexto && <div className="chat-context"><span>{contexto.tipo === 'anexo' ? `Anexo temporário: ${contexto.arquivo.name}` : `Documento em contexto: ${contexto.nome}`}</span><Button disabled={consultando} variant="ghost" onClick={() => { sessao.trocarContexto(null); setErroArquivo('') }}>Remover contexto</Button></div>}
+    <div className="conversation" role="log" aria-label="Conversa com o assistente" aria-live="polite">
+      {!mensagens.length && <div className="assistant-welcome"><img src={logo} alt="" width="36" height="36" /><div><strong>Como posso ajudar?</strong><p>Consulte documentos e evidências das triagens.</p><p className="muted small">Experimente: “Quais casos estão em urgência?” ou “Encontre o arquivo laudo.pdf”.</p></div></div>}
+      {mensagens.map((item, indice) => <div key={indice} className={`chat-message message-${item.papel}`}>
+        {item.papel === 'assistente' && <img src={logo} alt="MediFlow" width="30" height="30" />}
+        <div className="message-content"><Markdown skipHtml components={{ img: () => null, a: ({ children }) => <span>{children}</span> }}>{item.conteudo}</Markdown>
+          {item.anexo && <p className="muted small">Anexo temporário · {item.anexo}</p>}
+          {item.resposta && <FontesChat resposta={item.resposta} />}
+        </div>
+      </div>)}
+      {consultando && <p className="loading-message" role="status">Consultando documentos…</p>}
+      <div ref={fim} />
+    </div>
+    {(sessao.erroChat || erroArquivo) && <div className="error-message" role="alert"><p>{erroArquivo || sessao.erroChat}</p>{sessao.pendente && !erroArquivo && <Button disabled={consultando} onClick={() => void sessao.enviarMensagem(true)}>Tentar novamente</Button>}</div>}
+    <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); setErroArquivo(''); void sessao.enviarMensagem() }}>
+      <SelecionarArquivo chat disabled={consultando} onError={setErroArquivo} onFile={(arquivo) => { setErroArquivo(''); sessao.trocarContexto({ tipo: 'anexo', arquivo }) }} />
+      <textarea ref={entrada} rows={2} aria-label="Mensagem para o assistente" placeholder="Pergunte ao assistente…" disabled={consultando} value={rascunho} onChange={(event) => sessao.setRascunho(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!consultando) { setErroArquivo(''); void sessao.enviarMensagem() } } }} />
+      <Button type="submit" variant="primary" disabled={consultando || (!rascunho.trim() && contexto?.tipo !== 'anexo')} aria-label="Enviar mensagem"><Icon name="send" /></Button>
+    </form>
+    <p className="muted small">Anexos do chat são temporários (até {__CHAT_LIMITS__.maxAnexoMb} MB) e não iniciam triagem.</p>
+  </Panel>
+}

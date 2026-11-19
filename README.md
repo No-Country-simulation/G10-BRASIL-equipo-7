@@ -8,6 +8,8 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 A interface Streamlit chama a API, que executa extração com Gemini, validação, roteamento e gravação na OCI com `AGENT_MODE=real`. Configure `ALERTA_WEBHOOK_URL` para conectar os alertas urgentes ao n8n. A configuração e os resultados estão no [guia rápido](docs/guia-rapido.md).
 
+O novo frontend React está sendo construído em etapas, em paralelo ao Streamlit. O envio de triagem e o chatbot já se conectam à API; consulta e revisão de documentos serão integradas nas próximas etapas. Veja [como executar](frontend/README.md).
+
 ## 1. Problema e objetivo
 
 Documentos médicos (receituários, laudos, exames) chegam em formatos variados: PDF, imagem ou texto. Tratar todos do mesmo jeito atrasa os casos críticos e deixa passar leituras duvidosas.
