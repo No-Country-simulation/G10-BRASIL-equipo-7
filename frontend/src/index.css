@@ -186,3 +186,10 @@ details .review-fields { margin-top: 14px; }
 .delete-confirmation ul { list-style: disc; padding-left: 18px; }
 .success-message { color: #b3e6b0; background: #21432e; padding: 12px; border-radius: 6px; margin-bottom: 16px; }
 .review-history { display: grid; gap: 10px; border-block: 1px solid var(--color-border); padding: 12px 0; }
+.review-notice { color: #ecca7a; border-left: 3px solid #ecca7a; padding-left: 10px; font-size: .85rem; }
+.review-toggle { display: flex; align-items: center; gap: 8px; margin: 8px 0 16px; font-size: .85rem; }
+.clinical-fields { min-width: 0; }
+.clinical-fields > p { margin-bottom: 12px; }
+.medicine-fields { border-bottom: 1px solid var(--color-border); padding-bottom: 12px; }
+.review-history p, .review-fields textarea { white-space: pre-wrap; overflow-wrap: anywhere; }
+.result-panel form { max-height: 650px; overflow-y: auto; padding-right: 6px; }

@@ -92,9 +92,13 @@ export default function DocumentosPage() {
         {detalhe.erro && <p className="error-message" role="alert">{detalhe.erro}</p>}
         {documento?.erro && <p className="error-message" role="alert">{documento.erro}</p>}
         {!documento ? <EmptyState title={detalhe.carregando ? 'Carregando triagem…' : 'Nenhuma triagem selecionada'}>Selecione um documento para consultar o resultado.</EmptyState>
-          : aba === 'revisao' ? <RevisaoForm /> : aba === 'json' ? <pre className="result-json">{JSON.stringify(documento.resultado, null, 2)}</pre>
+          : aba === 'revisao' ? null : aba === 'json' ? <pre className="result-json">{JSON.stringify(documento.resultado, null, 2)}</pre>
             : resultado.success ? <ResumoTriagem resultado={resultado.data} decisao={documento.decisao} justificativaOriginal={documento.justificativa_original} />
               : <EmptyState title="Resumo indisponível">A triagem não segue o contrato atual. Confira o JSON ou o documento original.</EmptyState>}
+        {documento && categoria === 'ambiguidade' && <div hidden={aba !== 'revisao'}><RevisaoForm key={`${categoria}/${chave}/${versao}`} documento={documento} ativo={aba === 'revisao'} onSuccess={(decisao) => {
+          setAviso(`Documento encaminhado para ${decisao.destino === 'rotina' ? 'ROTINA' : 'URGÊNCIA'}.${decisao.destino === 'urgencia' && (decisao.alerta_status !== 'enviado' || decisao.aviso) ? ' O alerta não teve confirmação final.' : ''}`)
+          setEscolhida(null); setBusca(''); setParametros({ categoria }, { replace: true }); setAba('resumo'); setVersao((valor) => valor + 1)
+        }} /></div>}
       </Panel>
     </div>
   </>

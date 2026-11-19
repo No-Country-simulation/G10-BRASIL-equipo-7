@@ -1,4 +1,4 @@
-# Frontend React — etapa 4
+# Frontend React — etapa 5
 
 Estrutura inicial com React 19, TypeScript estrito, Vite 8, Tailwind CSS 4 e React Router.
 O layout tem navegação lateral, nova triagem e assistente em painéis separados,
@@ -7,8 +7,8 @@ O envio de triagem e o assistente já usam `POST /triagem` e `POST /chat` pelo p
 Inicie a API para usar esses fluxos. **Ver resultado** abre a última triagem em Documentos;
 **Conversar sobre este documento** prepara uma mensagem, sem enviá-la,
 usando a chave recebida no cabeçalho `X-Documento-Chave`.
-A consulta, a abertura das fontes e a exclusão também usam a API. O formulário de revisão
-continua desabilitado até a próxima etapa; para encaminhar documentos, use o Streamlit existente.
+A consulta, a abertura das fontes, a exclusão e a revisão humana também usam a API.
+O Streamlit existente continua disponível em paralelo.
 
 ## Triagem e chat
 
@@ -53,6 +53,30 @@ próprios limites em cada requisição e continua sendo a autoridade final.
 Leituras e exclusões aguardam até 30 segundos. Em falha de conexão durante a exclusão,
 atualize a lista para conferir o estado antes de repetir. Credenciais e chamadas à OCI
 continuam exclusivamente no backend.
+
+## Revisar Ambiguidade
+
+1. Em **Documentos → Ambiguidade**, selecione um arquivo e abra **Revisão**.
+2. Escolha **Rotina** e um departamento da configuração, ou **Urgência**, que usa a fila
+   médica automaticamente. Informe o revisor; a observação é opcional.
+3. Se necessário, marque **Corrigir dados extraídos**. Preencha paciente, médico,
+   medicamentos, exame, diagnóstico e CID pelo formulário. É possível adicionar/remover
+   medicamentos; campos vazios representam informação ausente. Sem marcar essa opção,
+   os dados extraídos permanecem como estavam.
+4. Clique em **Confirmar encaminhamento**. Após a confirmação, o arquivo sai dos
+   pendentes e a lista seleciona o próximo. Consulte o destino pelos botões de categoria.
+
+O resultado mantém ID e confiança da IA. Revisor, observação, data e indicação de correção
+aparecem separados no histórico. Decisões antigas são apenas consultadas, sem movimentação
+retroativa. Documentos com resultado ilegível não podem ser encaminhados pelo formulário.
+
+Se a persistência ficar incompleta, **Retomar encaminhamento** repete a decisão registrada,
+com os campos bloqueados. Não há repetição automática. Após erro de conexão ou timeout,
+a tela consulta a situação antes de liberar a retomada; se essa leitura falhar, use
+**Conferir situação da revisão**. Atualizar a página descarta rascunhos ainda não registrados.
+
+O webhook é acionado exclusivamente pelo backend após a persistência de Urgência.
+Uma falha do alerta não desfaz o encaminhamento, e a tela informa a ausência de confirmação.
 
 ## Executar
 
