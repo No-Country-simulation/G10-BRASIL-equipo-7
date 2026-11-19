@@ -1,0 +1,233 @@
+{
+"name": "MediFlow - Alerta de Urgência",
+"nodes": [
+{
+"parameters": {
+"httpMethod": "POST",
+"path": "22e549e2-87a1-45dc-bf61-fc6dc9d27eee",
+"responseMode": "responseNode",
+"options": {}
+},
+"type": "n8n-nodes-base.webhook",
+"typeVersion": 2.2,
+"position": [
+384,
+0
+],
+"id": "ff09c26b-b73b-43ef-be8a-f9d0501bc7b1",
+"name": "01 - Receber Alerta",
+"webhookId": "22e549e2-87a1-45dc-bf61-fc6dc9d27eee"
+},
+{
+"parameters": {
+"assignments": {
+"assignments": [
+{
+"id": "2e9da624-8957-4b49-9123-74b84cfe2c72",
+"name": "documento_id",
+"value": "={{ $json.body.documento_id }}",
+"type": "string"
+},
+{
+"id": "6e0d9f73-8cc3-439b-b433-c3088d40cb42",
+"name": "classificacao",
+"value": "={{ $json.body.classificacao }}",
+"type": "string"
+},
+{
+"id": "fd954d47-586c-47ee-9079-3f66285e065e",
+"name": "destino_principal",
+"value": "={{ $json.body.destino_principal }}",
+"type": "string"
+},
+{
+"id": "2701bf35-8bb0-4e7c-8c40-c2928f8d771c",
+"name": "score_confianca",
+"value": "={{ $json.body.score_confianca }}",
+"type": "number"
+},
+{
+"id": "df81cad5-bba2-420a-9baa-36ff3c133f45",
+"name": "justificativa",
+"value": "={{ $json.body.justificativa }}",
+"type": "string"
+},
+{
+"id": "794869f2-58ab-4e0a-b647-fb0bf982f35a",
+"name": "dados_extraidos",
+"value": "={{ $json.body.dados_extraidos }}",
+"type": "object"
+}
+]
+},
+"options": {}
+},
+"type": "n8n-nodes-base.set",
+"typeVersion": 3.5,
+"position": [
+768,
+0
+],
+"id": "8c827aa2-a789-49ef-96c7-9e8488dfe638",
+"name": "02 - Organizar Dados"
+},
+{
+"parameters": {
+"conditions": {
+"options": {
+"caseSensitive": true,
+"leftValue": "",
+"typeValidation": "strict",
+"version": 4
+},
+"conditions": [
+{
+"id": "a3e23212-c532-4ef2-9fb9-c535cf2476dd",
+"leftValue": "={{ $json.classificacao }}",
+"rightValue": "urgencia",
+"operator": {
+"type": "string",
+"operation": "equals",
+"name": "filter.operator.equals"
+}
+}
+],
+"combinator": "and"
+},
+"options": {}
+},
+"type": "n8n-nodes-base.if",
+"typeVersion": 2.4,
+"position": [
+1120,
+0
+],
+"id": "d8b33972-c467-4c8d-b9fc-96d7bdf9993e",
+"name": "03 - Verificar Urgência"
+},
+{
+"parameters": {
+"respondWith": "json",
+"responseBody": "={\n  "sucesso": true,\n  "notificacao_gerada": true,\n  "documento_id": "{{ $('02 - Organizar Dados').item.json.documento_id }}",\n  "mensagem": "Alerta de urgência enviado com sucesso por e-mail."\n}",
+"options": {
+"responseCode": 200
+}
+},
+"type": "n8n-nodes-base.respondToWebhook",
+"typeVersion": 1.5,
+"position": [
+1488,
+-480
+],
+"id": "d8b5b3d4-9cc0-4e5c-b928-8cb18761fa2f",
+"name": "05 - Resposta Sucesso"
+},
+{
+"parameters": {
+"sendTo": "mediflow.triagemurgencia@gmail.com",
+"subject": "MediFlow — Documento Clínico Urgente",
+"message": "= 🚨 ALERTA DE URGÊNCIA — MEDIFLOW\n\nUm documento clínico foi classificado como urgente.\n\nDocumento: {{ $json.documento_id }}\nClassificação: {{ $json.classificacao }}\nDestino: {{$json.destino_principal }}\nConfiança: {{ $json.score_confianca }}\nJustificativa: {{$json.justificativa }}\n\n\n\nEsta é uma notificação automática do sistema MediFlow.\nConsulte o sistema para verificar os detalhes do documento.",
+"options": {}
+},
+"type": "n8n-nodes-base.gmail",
+"typeVersion": 2.2,
+"position": [
+1264,
+-320
+],
+"id": "93732342-9b01-40b6-9377-5866786709e1",
+"name": "Send a message",
+"webhookId": "1a39cb56-0164-4dcd-a2bc-e34399c89f53",
+"credentials": {
+"gmailOAuth2": {
+"id": "mxREfTFj2gedoRUD",
+"name": "Gmail account"
+}
+}
+},
+{
+"parameters": {
+"respondWith": "json",
+"responseBody": "={\n  "sucesso": true,\n  "notificacao_gerada": false,\n  "mensagem": "Documento não atende aos critérios de alerta de urgência"\n}",
+"options": {
+"responseCode": 200
+}
+},
+"type": "n8n-nodes-base.respondToWebhook",
+"typeVersion": 1.5,
+"position": [
+1264,
+320
+],
+"id": "f4c9a1b2-7d3e-48a1-9c5b-2e1f8d6a4c90",
+"name": "07 - Sem Alerta"
+}
+],
+"pinData": {},
+"connections": {
+"01 - Receber Alerta": {
+"main": [
+[
+{
+"node": "02 - Organizar Dados",
+"type": "main",
+"index": 0
+}
+]
+]
+},
+"02 - Organizar Dados": {
+"main": [
+[
+{
+"node": "03 - Verificar Urgência",
+"type": "main",
+"index": 0
+}
+]
+]
+},
+"03 - Verificar Urgência": {
+"main": [
+[
+{
+"node": "Send a message",
+"type": "main",
+"index": 0
+}
+],
+[
+{
+"node": "07 - Sem Alerta",
+"type": "main",
+"index": 0
+}
+]
+]
+},
+"Send a message": {
+"main": [
+[
+{
+"node": "05 - Resposta Sucesso",
+"type": "main",
+"index": 0
+}
+]
+]
+}
+},
+"active": true,
+"settings": {
+"executionOrder": "v1",
+"binaryMode": "separate"
+},
+"versionId": "13e62ce9-7422-4694-b8e1-b9a036ea3101",
+"meta": {
+"templateCredsSetupCompleted": true,
+"instanceId": "eb6c1a9e7443e84db03a33160038669cd99456241172597718ce3265b271b42e"
+},
+"nodeGroups": [],
+"id": "YerNVu0jhBpTrweq",
+"tags": []
+}
