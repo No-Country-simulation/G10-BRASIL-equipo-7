@@ -10,3 +10,9 @@ __pycache__/
 *.pem
 .DS_Store
 .vscode/
+node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.env.*
+!frontend/.env.example
+*.tsbuildinfo

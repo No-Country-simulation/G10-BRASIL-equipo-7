@@ -6,7 +6,9 @@ Triagem automática de documentos médicos com um agente de IA. O documento entr
 
 > Status: documento em construção. Seções marcadas com **(a definir)** dependem de issues em andamento.
 
-A interface Streamlit chama a API, que executa extração com Gemini, validação, roteamento e gravação na OCI com `AGENT_MODE=real`. Configure `ALERTA_WEBHOOK_URL` para conectar os alertas urgentes ao n8n. A configuração e os resultados estão no [guia rápido](docs/guia-rapido.md).
+A interface React chama a API, que executa extração com Gemini, validação, roteamento e gravação na OCI com `AGENT_MODE=real`. Configure `ALERTA_WEBHOOK_URL` para conectar os alertas urgentes ao n8n. A configuração e os resultados estão no [guia rápido](docs/guia-rapido.md).
+
+Triagem, chatbot, consulta, exclusão e revisão humana de documentos já se conectam à API. O React é a interface padrão no Docker; o Streamlit continua disponível no perfil opcional `legado`. Veja [como executar](frontend/README.md).
 
 ## 1. Problema e objetivo
 
@@ -30,7 +32,7 @@ A mesma arquitetura em Mermaid (editável no próprio README):
 
 ```mermaid
 flowchart TD
-    UI["Interface<br/>Streamlit e API"] -->|salva original| REC[("Bucket OCI<br/>recebidos")]
+    UI["Interface React<br/>e API FastAPI"] -->|salva original| REC[("Bucket OCI<br/>recebidos")]
     UI -->|envia o arquivo| EXT
 
     subgraph AGENTE["Agente de Ingestão de Dados (LangGraph)"]
@@ -59,7 +61,7 @@ flowchart TD
 
 | Bloco | Função |
 |---|---|
-| **Interface (Streamlit e API)** | Recebe PDF, imagem ou JSON, chama o agente diretamente e devolve o JSON de triagem. |
+| **Interface React e API** | Recebe PDF, imagem ou JSON; a API chama o agente e devolve o JSON de triagem. Streamlit permanece opcional. |
 | **Bucket `recebidos`** | Guarda o original e serve de registro de tudo que entrou. |
 | **Extrair** | Envia o documento ao Gemini e obtém os campos estruturados. |
 | **Validar** | Confere a extração com os contratos Pydantic e calcula o score de confiança. |
@@ -113,7 +115,8 @@ O histórico completo fica em [`docs/decisoes.md`](https://github.com/No-Country
 
 ```
 mediflow/
-├── app/            # interface Streamlit (app.py, .streamlit/config.toml)
+├── frontend/       # interface React/TypeScript e Nginx
+├── app/            # interface Streamlit opcional
 ├── api/            # API FastAPI: POST /triagem (#9)
 ├── agent/          # grafo LangGraph, nós, contratos e regras
 │   ├── nodes/      # extrair.py, validar.py, decidir_rota.py
@@ -151,13 +154,19 @@ python -m uvicorn api.main:app --reload
 
 Abra <http://127.0.0.1:8000/docs> para escolher um arquivo e testar `POST /triagem`. No modo real, o conteúdo de PDF, imagem ou JSON é enviado ao Gemini. Os exemplos de upload estão no [guia da API](docs/api.md).
 
-Em outro terminal, com o ambiente ativado:
+Em outro terminal, com Node.js 24 LTS e npm:
 
 ```bash
-# Interface conectada à API
-python -m streamlit run app/app.py
+cd frontend
+npm ci
+npm run dev
+```
 
-# Testes automatizados: usam diretórios temporários, sem gravar nos buckets locais.
+Abra <http://localhost:5173>. Para iniciar API e React com Docker, configure o `.env` e execute `docker compose up --build`; a interface fica em <http://localhost:8080>. Veja o [guia rápido](docs/guia-rapido.md) para logs, encerramento e Streamlit opcional.
+
+Testes do backend, na raiz e com a venv ativa (usam armazenamento controlado):
+
+```bash
 AGENT_MODE=mock python -m pytest -q
 ```
 
